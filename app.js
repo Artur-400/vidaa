@@ -1,4 +1,4 @@
-// VIDAA IPTV v0.3.10
+// VIDAA IPTV v0.3.11
 // Основа сохранена максимально близко к рабочей версии пользователя.
 
 const player = document.getElementById('player');
@@ -513,7 +513,7 @@ window.__vidaa = {
 
 
 
-/* VIDAA IPTV v0.3.10 — stable fullscreen channel picker for Hisense/VIDAA */
+/* VIDAA IPTV v0.3.11 — stable fullscreen channel picker for Hisense/VIDAA */
 (function(){
   const playerSection = document.getElementById('playerSection');
   const overlay = document.getElementById('fullscreenChannelOverlay');
@@ -530,7 +530,7 @@ window.__vidaa = {
 
   // Temporary on-screen key debug (shows keyCode / fullscreen state on the TV).
   // Set to false once everything works.
-  const DEBUG_KEYS = true;
+  const DEBUG_KEYS = false;
   let dbgEl = null;
   function dbg(text){
     if(!DEBUG_KEYS) return;
