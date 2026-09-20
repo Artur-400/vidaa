@@ -1,4 +1,4 @@
-// VIDAA IPTV v0.3.11
+// VIDAA IPTV v0.3.13
 // Основа сохранена максимально близко к рабочей версии пользователя.
 
 const player = document.getElementById('player');
@@ -513,7 +513,7 @@ window.__vidaa = {
 
 
 
-/* VIDAA IPTV v0.3.11 — stable fullscreen channel picker for Hisense/VIDAA */
+/* VIDAA IPTV v0.3.13 — stable fullscreen channel picker for Hisense/VIDAA */
 (function(){
   const playerSection = document.getElementById('playerSection');
   const overlay = document.getElementById('fullscreenChannelOverlay');
@@ -530,7 +530,7 @@ window.__vidaa = {
 
   // Temporary on-screen key debug (shows keyCode / fullscreen state on the TV).
   // Set to false once everything works.
-  const DEBUG_KEYS = false;
+  const DEBUG_KEYS = true;
   let dbgEl = null;
   function dbg(text){
     if(!DEBUG_KEYS) return;
@@ -662,7 +662,7 @@ window.__vidaa = {
     let k = e.keyCode || e.which;
     // Fallback if the TV reports key names instead of numeric codes
     if(!k && /^[0-9]$/.test(e.key || '')) k = 48 + Number(e.key);
-    dbg('key=' + k + ' fs=' + inFullscreen() + ' overlay=' + (overlay ? overlay.classList.contains('show') : 'none'));
+    dbg('key=' + k + ' name=' + (e.key || '-') + ' fs=' + inFullscreen() + ' overlay=' + (overlay ? overlay.classList.contains('show') : 'none'));
 
     if(k === 50){
       e.preventDefault(); e.stopImmediatePropagation();
@@ -682,6 +682,7 @@ window.__vidaa = {
       }
       return;
     }
+    if(SUBTITLE_KEYCODES.indexOf(k) >= 0 || SUBTITLE_KEYNAMES.indexOf(e.key) >= 0){ e.preventDefault(); e.stopImmediatePropagation(); window.__cycleSubtitles(); return; }
     if(k === 52){ e.preventDefault(); e.stopImmediatePropagation(); previousChannel(); return; }
     if(k === 54){ e.preventDefault(); e.stopImmediatePropagation(); nextChannel(); return; }
     if(k === 53){
@@ -692,25 +693,87 @@ window.__vidaa = {
     }
   }, true);
 
-  window.__toggleSubtitles=function(){
+  // Keys that cycle subtitles. 460 = standard HbbTV/OIPF VK_SUBTITLE code,
+  // 48 = "0", 403 = red button. If the remote's Subtitle button reports another code
+  // (see the debug line), add that number here.
+  const SUBTITLE_KEYCODES = [460, 48, 403];
+  const SUBTITLE_KEYNAMES = ['Subtitle', 'Subtitles', 'ClosedCaption', 'Captions', 'MediaTrackSubtitle'];
+
+  // ---- Subtitles: cycle Off -> track 1 -> track 2 ... -> Off ----
+  let subIdx = -1;          // -1 = off
+  let toastEl = null, toastTimer = null;
+
+  function toast(text){
+    if(!toastEl){
+      toastEl = document.createElement('div');
+      toastEl.style.cssText = 'position:absolute;left:50%;top:24px;margin-left:-160px;width:320px;' +
+        'text-align:center;z-index:100001;padding:8px 14px;background:rgba(0,0,0,.8);color:#e6f7ff;' +
+        'font:20px sans-serif;border-radius:8px;pointer-events:none;box-sizing:border-box';
+      playerSection.appendChild(toastEl);
+    }
+    toastEl.textContent = text;
+    toastEl.style.display = 'block';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function(){ toastEl.style.display = 'none'; }, 2200);
+  }
+
+  function nativeTracks(){
+    const all = video && video.textTracks ? Array.from(video.textTracks) : [];
+    return all.filter(function(t){ return t.kind === 'subtitles' || t.kind === 'captions'; });
+  }
+
+  function subtitleEntries(){
+    const list = [];
     if(hls && hls.subtitleTracks && hls.subtitleTracks.length){
-      hls.subtitleDisplay=!hls.subtitleDisplay;
-      return hls.subtitleDisplay;
+      hls.subtitleTracks.forEach(function(t, i){
+        list.push({ hlsIndex: i, name: t.name || t.lang || ('#' + (i + 1)) });
+      });
+      // CEA-608/708 captions embedded in the video are exposed as native "captions" tracks
+      nativeTracks().filter(function(t){ return t.kind === 'captions'; }).forEach(function(t, i){
+        list.push({ track: t, name: t.label || t.language || ('CC ' + (i + 1)) });
+      });
+    } else {
+      nativeTracks().forEach(function(t, i){
+        list.push({ track: t, name: t.label || t.language || ('#' + (i + 1)) });
+      });
     }
-    if(video && video.textTracks){
-      const subs=Array.from(video.textTracks).filter(t=>t.kind==='subtitles'||t.kind==='captions');
-      if(subs.length){
-        const active=subs.findIndex(t=>t.mode==='showing');
-        subs.forEach(t=>t.mode='disabled');
-        if(active<0){subs[0].mode='showing';return true;}
-        return false;
-      }
+    return list;
+  }
+
+  window.__cycleSubtitles = function(){
+    const entries = subtitleEntries();
+    if(!entries.length){ subIdx = -1; toast('Субтитров в этом канале нет'); updateSubButton(); return null; }
+
+    subIdx++;
+    if(subIdx >= entries.length) subIdx = -1;
+
+    // switch everything off first
+    try { if(hls){ hls.subtitleTrack = -1; hls.subtitleDisplay = false; } } catch(_) {}
+    nativeTracks().forEach(function(t){ try { t.mode = 'disabled'; } catch(_) {} });
+
+    if(subIdx >= 0){
+      const en = entries[subIdx];
+      try {
+        if(en.track) en.track.mode = 'showing';
+        else if(hls){ hls.subtitleDisplay = true; hls.subtitleTrack = en.hlsIndex; }
+      } catch(_) {}
+      toast('Субтитры: ' + en.name);
+    } else {
+      toast('Субтитры: выкл');
     }
-    return null;
+    updateSubButton();
+    return subIdx >= 0;
   };
-  if(subButton) subButton.addEventListener('click',function(e){
+
+  function updateSubButton(){
+    if(subButton) subButton.textContent = subIdx >= 0 ? 'SUB ✓' : 'SUB';
+  }
+
+  // New channel -> new stream -> subtitles start off again
+  if(video) video.addEventListener('emptied', function(){ subIdx = -1; updateSubButton(); });
+
+  if(subButton) subButton.addEventListener('click', function(e){
     e.stopPropagation();
-    const state=window.__toggleSubtitles();
-    subButton.textContent=state===true?'SUB ✓':'SUB';
+    window.__cycleSubtitles();
   });
 })();
