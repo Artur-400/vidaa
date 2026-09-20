@@ -32,3 +32,19 @@ video{width:100%;height:100%;background:#000}
 #now{margin-top:10px;padding:6px 8px;background:linear-gradient(90deg,#031a1f,#042b2f);border-radius:6px;color:#bff7ea}
 footer{padding:8px 12px;background:#021014;color:#89d9c9;font-size:12px}
 @media (max-width:900px){#sidebar{width:280px}}
+
+
+/* Fullscreen fallback for TV browsers without Fullscreen API */
+body.tv-video-fullscreen #app header,
+body.tv-video-fullscreen #app footer,
+body.tv-video-fullscreen #sidebar,
+body.tv-video-fullscreen #now{display:none}
+body.tv-video-fullscreen #playerSection{
+  position:fixed; inset:0; z-index:99999; padding:0; background:#000;
+}
+body.tv-video-fullscreen .video-wrap{
+  width:100vw; height:100vh; border-radius:0;
+}
+body.tv-video-fullscreen video{
+  width:100vw; height:100vh; object-fit:contain;
+}
