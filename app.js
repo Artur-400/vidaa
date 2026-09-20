@@ -513,48 +513,33 @@ window.__vidaa = {
 
 
 
-/* --- VIDAA IPTV v0.2.4: numeric remote control --- */
+/* --- VIDAA IPTV v0.2.5: exact numeric key diagnostic --- */
 (function(){
-  function items(){
-    return Array.from(channelListEl.querySelectorAll('li'));
+  if(new URLSearchParams(location.search).get('keys')!=='1') return;
+
+  const box=document.createElement('div');
+  Object.assign(box.style,{
+    position:'fixed',left:'10px',top:'10px',zIndex:'1000000',
+    width:'520px',padding:'14px',background:'rgba(0,0,0,.94)',
+    color:'#00ffe0',border:'2px solid #00ffe0',borderRadius:'8px',
+    font:'bold 18px/1.5 monospace',whiteSpace:'pre-wrap',
+    pointerEvents:'none'
+  });
+  document.body.appendChild(box);
+
+  const log=[];
+  function add(e){
+    log.unshift(
+      `key=${JSON.stringify(e.key)}  code=${JSON.stringify(e.code)}\n`+
+      `keyCode=${e.keyCode}  which=${e.which}  charCode=${e.charCode}`
+    );
+    while(log.length>5) log.pop();
+    box.textContent='VIDAA v0.2.5 — KEY TEST\n\n'+log.join('\n\n');
   }
 
-  function focusAt(pos){
-    const a=items();
-    if(!a.length) return;
-    focused=Math.max(0,Math.min(pos,a.length-1));
-    a[focused].focus();
-    a.forEach((li,i)=>li.classList.toggle('active',i===focused));
-  }
-
-  function moveFocus(delta){
-    const a=items();
-    if(!a.length) return;
-    let p=a.indexOf(document.activeElement);
-    if(p<0) p=Math.max(0,Math.min(focused,a.length-1));
-    focusAt(p+delta);
-  }
-
-  function playFocused(){
-    const a=items();
-    if(!a.length) return;
-    let p=a.indexOf(document.activeElement);
-    if(p<0) p=Math.max(0,Math.min(focused,a.length-1));
-    const title=a[p].querySelector('.title')?.textContent || '';
-    const idx=channels.findIndex(ch=>ch.title===title);
-    if(idx>=0){
-      focused=p;
-      playByIndex(idx);
-    }
-  }
-
-  window.addEventListener('keydown',function(e){
-    switch(e.key){
-      case '2': e.preventDefault(); moveFocus(-1); break;
-      case '8': e.preventDefault(); moveFocus(1); break;
-      case '4': e.preventDefault(); changeIndex((currentIndex===null?0:currentIndex)-1); break;
-      case '6': e.preventDefault(); changeIndex((currentIndex===null?0:currentIndex)+1); break;
-      case '5': e.preventDefault(); playFocused(); break;
-    }
+  window.addEventListener('keydown',e=>{
+    add(e);
   },true);
+
+  box.textContent='VIDAA v0.2.5 — KEY TEST\n\nНажми по очереди: 2 4 5 6 8';
 })();
