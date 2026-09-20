@@ -1,4 +1,4 @@
-// VIDAA IPTV v0.3.18
+// VIDAA IPTV v0.3.19
 // Основа сохранена максимально близко к рабочей версии пользователя.
 
 const player = document.getElementById('player');
@@ -438,7 +438,7 @@ function renderPlaylistHeader() {
   if (!playlistHeaderEl) return;
   const p = playlists[playlistIndex];
   playlistHeaderEl.textContent = 'Плейлист' + (p ? ': ' + p.name : '') +
-    (playlists.length > 1 ? '  ▾ (7)' : '');
+    (playlists.length > 1 ? '  ▾ (CH.LIST)' : '');
 }
 
 async function selectPlaylist(idx, opts) {
@@ -641,7 +641,7 @@ window.__vidaa = {
 
 
 
-/* VIDAA IPTV v0.3.18 — stable fullscreen channel picker for Hisense/VIDAA */
+/* VIDAA IPTV v0.3.19 — stable fullscreen channel picker for Hisense/VIDAA */
 (function(){
   const playerSection = document.getElementById('playerSection');
   const overlay = document.getElementById('fullscreenChannelOverlay');
@@ -800,10 +800,10 @@ window.__vidaa = {
       if(k === 50 || k === 38){ pickIdx--; paintPicker(); }
       else if(k === 56 || k === 40){ pickIdx++; paintPicker(); }
       else if(k === 53 || k === 13){ pickerChoose(); }
-      else if(k === 55 || k === 27 || k === 8 || k === 10009 || k === 461){ closePicker(); }
+      else if(k === 501 || k === 27 || k === 8 || k === 10009 || k === 461){ closePicker(); }
       return;
     }
-    if(k === 55){ e.preventDefault(); e.stopImmediatePropagation(); openPicker(); return; }
+    if(k === 501){ e.preventDefault(); e.stopImmediatePropagation(); openPicker(); return; }
 
     if(k === 50){
       e.preventDefault(); e.stopImmediatePropagation();
@@ -835,7 +835,7 @@ window.__vidaa = {
   }, true);
 
 
-  // ---- Playlist picker: key 7 opens, 2/8 (or up/down) select, 5 (or OK/Enter) load, 7/Back close ----
+  // ---- Playlist picker: CH.LIST (keyCode 501) opens, 2/8 (or up/down) select, 5 (or OK/Enter) load, CH.LIST/Back close ----
   let pickerEl = null, pickerList = null, pickerOpen = false, pickIdx = 0;
 
   function buildPicker(){
@@ -853,7 +853,7 @@ window.__vidaa = {
     pickerList.style.cssText = 'list-style:none;margin:0;padding:0;max-height:50vh;overflow:hidden;position:relative';
 
     const hint = document.createElement('div');
-    hint.textContent = '2 / 8 — выбор   5 — ок   7 — закрыть';
+    hint.textContent = '2 / 8 — выбор   5 — ок   CH.LIST — закрыть';
     hint.style.cssText = 'margin-top:8px;padding:6px 10px;font-size:13px;color:#b9f0e8';
 
     pickerEl.appendChild(title);
