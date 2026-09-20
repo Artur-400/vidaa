@@ -702,9 +702,7 @@ window.__vidaa = {
   }, true);
 
   // Keys that cycle subtitles. 460 = standard HbbTV/OIPF VK_SUBTITLE code,
-  // 48 = "0", 403 = red button. If the remote's Subtitle button reports another code
-  // (see the debug line), add that number here.
-  const SUBTITLE_KEYCODES = [460, 48, 403];
+  const SUBTITLE_KEYCODES = [460];
   const SUBTITLE_KEYNAMES = ['Subtitle', 'Subtitles', 'ClosedCaption', 'Captions', 'MediaTrackSubtitle'];
 
   // ---- Subtitles: cycle Off -> track 1 -> track 2 ... -> Off ----
