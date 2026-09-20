@@ -130,3 +130,29 @@ body.tv-video-fullscreen video{
 }
 
 body.tv-video-fullscreen #now{display:none}
+
+
+/* v0.3.3: Hisense/VIDAA fullscreen fallback + API fullscreen */
+#playerSection.is-fullscreen{
+  position:fixed !important;
+  inset:0 !important;
+  z-index:99999 !important;
+  width:100vw !important;
+  height:100vh !important;
+  padding:0 !important;
+  background:#000 !important;
+}
+#playerSection.is-fullscreen .video-wrap{
+  position:absolute !important;
+  inset:0 !important;
+  width:100% !important;
+  height:100% !important;
+  border-radius:0 !important;
+}
+#playerSection.is-fullscreen video{
+  width:100% !important;
+  height:100% !important;
+  object-fit:contain !important;
+}
+#playerSection.is-fullscreen #now{display:none !important}
+#playerSection.is-fullscreen ~ *{display:none}

@@ -513,146 +513,61 @@ window.__vidaa = {
 
 
 
-/* VIDAA IPTV v0.2.7 — direct numeric remote control */
+/* VIDAA IPTV v0.3.3 — unified numeric remote + fullscreen channel picker */
 (function(){
-  let remoteFocus = 0;
-
-  function list(){
-    return Array.from(channelListEl.querySelectorAll('li'));
-  }
-
-  function paintFocus(){
-    const a=list();
-    if(!a.length) return;
-    remoteFocus=Math.max(0,Math.min(remoteFocus,a.length-1));
-    a.forEach((li,i)=>{
-      li.style.outline = i===remoteFocus ? '3px solid #ff00ff' : '';
-      li.style.background = i===remoteFocus ? 'rgba(255,0,255,.12)' : '';
-    });
-    a[remoteFocus].scrollIntoView({block:'center'});
-  }
-
-  function up(){ remoteFocus--; paintFocus(); }
-  function down(){ remoteFocus++; paintFocus(); }
-
-  function previousChannel(){
-    if(!channels.length) return;
-    let i = (typeof currentIndex === 'number' ? currentIndex : 0) - 1;
-    if(i < 0) i = channels.length - 1;
-    remoteFocus = 0;
-    playByIndex(i);
-  }
-
-  function nextChannel(){
-    if(!channels.length) return;
-    let i = (typeof currentIndex === 'number' ? currentIndex : -1) + 1;
-    if(i >= channels.length) i = 0;
-    remoteFocus = 0;
-    playByIndex(i);
-  }
-
-  function confirm(){
-    const a=list();
-    if(!a.length) return;
-    remoteFocus=Math.max(0,Math.min(remoteFocus,a.length-1));
-    a[remoteFocus].click();
-  }
-
-  window.addEventListener('keydown',function(e){
-    const k=e.keyCode;
-
-    if(k===50){ // 2
-      e.preventDefault(); e.stopImmediatePropagation();
-      up();
-      return;
-    }
-    if(k===56){ // 8
-      e.preventDefault(); e.stopImmediatePropagation();
-      down();
-      return;
-    }
-    if(k===52){ // 4
-      e.preventDefault(); e.stopImmediatePropagation();
-      previousChannel();
-      return;
-    }
-    if(k===54){ // 6
-      e.preventDefault(); e.stopImmediatePropagation();
-      nextChannel();
-      return;
-    }
-    if(k===53){ // 5
-      e.preventDefault(); e.stopImmediatePropagation();
-      confirm();
-      return;
-    }
-  },true);
-})();
-
-
-
-/* VIDAA IPTV v0.3.2 — corrected fullscreen overlay + HLS subtitles */
-(function(){
-  const video = document.getElementById('player');
   const playerSection = document.getElementById('playerSection');
   const overlay = document.getElementById('fullscreenChannelOverlay');
   const overlayList = document.getElementById('fullscreenChannelList');
-
+  const video = document.getElementById('player');
+  const subButton = document.getElementById('btn-subtitle');
   let fsFocus = 0;
 
   function inFullscreen(){
     return document.fullscreenElement === playerSection ||
-           document.body.classList.contains('tv-video-fullscreen');
+           document.body.classList.contains('tv-video-fullscreen') ||
+           playerSection.classList.contains('is-fullscreen');
   }
 
   function filteredChannelIndices(){
-    // The main list can be filtered by group. Use its actual channel indexes.
-    return Array.from(channelListEl.querySelectorAll('li')).map(li=>{
-      const title = li.querySelector('.title');
-      return channels.findIndex(ch => ch.title === (title ? title.textContent : ''));
-    }).filter(i=>i>=0);
+    return Array.from(channelListEl.querySelectorAll('li[data-global-index]'))
+      .map(li => Number(li.dataset.globalIndex))
+      .filter(i => Number.isInteger(i) && channels[i]);
+  }
+
+  function paint(){
+    const items = Array.from(overlayList.children);
+    if(!items.length) return;
+    fsFocus = Math.max(0, Math.min(fsFocus, items.length - 1));
+    items.forEach((li,i)=>li.classList.toggle('fs-selected', i===fsFocus));
+    items[fsFocus].scrollIntoView({block:'nearest'});
   }
 
   function buildOverlay(){
-    if(!overlayList) return;
-    overlayList.innerHTML = '';
+    overlayList.innerHTML='';
+    const indices=filteredChannelIndices();
+    const current=indices.indexOf(currentIndex);
+    fsFocus=current>=0 ? current : 0;
 
-    const indices = filteredChannelIndices();
-    indices.forEach((channelIndex, i)=>{
-      const ch = channels[channelIndex];
-      const li = document.createElement('li');
-      li.textContent = ch ? ch.title : '';
-      li.dataset.channelIndex = String(channelIndex);
-      li.className = i===fsFocus ? 'fs-selected' : '';
-
-      li.addEventListener('click', function(e){
+    indices.forEach((channelIndex,i)=>{
+      const ch=channels[channelIndex];
+      const li=document.createElement('li');
+      li.textContent=ch.title;
+      li.dataset.channelIndex=String(channelIndex);
+      li.addEventListener('click',function(e){
         e.stopPropagation();
         fsFocus=i;
         playSelected();
       });
-
       overlayList.appendChild(li);
     });
-
-    // Start at current channel.
-    const current = indices.indexOf(currentIndex);
-    if(current>=0) fsFocus=current;
     paint();
-  }
-
-  function paint(){
-    const items=Array.from(overlayList ? overlayList.children : []);
-    if(!items.length) return;
-    fsFocus=Math.max(0,Math.min(fsFocus,items.length-1));
-    items.forEach((li,i)=>li.classList.toggle('fs-selected',i===fsFocus));
-    if(overlay.classList.contains('show'))
-      items[fsFocus].scrollIntoView({block:'nearest'});
   }
 
   function showOverlay(){
     buildOverlay();
     overlay.classList.add('show');
     overlay.setAttribute('aria-hidden','false');
+    paint();
   }
 
   function hideOverlay(){
@@ -662,112 +577,137 @@ window.__vidaa = {
 
   function move(delta){
     if(!overlay.classList.contains('show')) showOverlay();
-    else {
-      fsFocus += delta;
-      paint();
-    }
+    else { fsFocus += delta; paint(); }
   }
 
   function playSelected(){
     const items=Array.from(overlayList.children);
     if(!items.length) return;
     const idx=Number(items[fsFocus].dataset.channelIndex);
-    if(Number.isInteger(idx) && channels[idx]){
-      playByIndex(idx);
-    }
+    if(Number.isInteger(idx) && channels[idx]) playByIndex(idx);
     hideOverlay();
+  }
+
+  function previousChannel(){
+    if(!channels.length) return;
+    let i=(typeof currentIndex==='number' ? currentIndex : 0)-1;
+    if(i<0) i=channels.length-1;
+    playByIndex(i);
+  }
+
+  function nextChannel(){
+    if(!channels.length) return;
+    let i=(typeof currentIndex==='number' ? currentIndex : -1)+1;
+    if(i>=channels.length) i=0;
+    playByIndex(i);
   }
 
   async function enterFullscreen(){
     try{
-      if(document.fullscreenElement) return;
+      if(document.fullscreenElement===playerSection) return;
       if(playerSection.requestFullscreen){
         await playerSection.requestFullscreen();
       }else{
         document.body.classList.add('tv-video-fullscreen');
+        playerSection.classList.add('is-fullscreen');
       }
     }catch(e){
       console.warn('Fullscreen:',e);
+      document.body.classList.add('tv-video-fullscreen');
+      playerSection.classList.add('is-fullscreen');
     }
   }
 
-  // OK enters fullscreen only when not already fullscreen.
+  // Physical OK arrives as click on this TV. First OK enters fullscreen.
   document.addEventListener('click',function(e){
     if(!e.isTrusted) return;
     if(!inFullscreen()) enterFullscreen();
   },true);
 
+  document.addEventListener('fullscreenchange',function(){
+    const active=document.fullscreenElement===playerSection;
+    playerSection.classList.toggle('is-fullscreen',active);
+    if(active) hideOverlay();
+    else hideOverlay();
+  });
+
+  // One — and only one — numeric remote handler. This fixes the old
+  // stopImmediatePropagation handler that prevented the fullscreen picker
+  // from ever receiving 2/8/5.
   window.addEventListener('keydown',function(e){
     const k=e.keyCode;
 
-    if(k===50){ // 2
-      if(inFullscreen()){
-        e.preventDefault(); e.stopImmediatePropagation();
-        move(-1);
+    if(k===50){ // 2 = up
+      e.preventDefault(); e.stopImmediatePropagation();
+      if(inFullscreen()) move(-1);
+      else {
+        const items=channelListEl.querySelectorAll('li[data-visible-index]');
+        if(items.length){
+          const n=Math.max(0,focusedVisibleIndex-1);
+          focusedVisibleIndex=n;
+          items[n].focus();
+        }
       }
       return;
     }
 
-    if(k===56){ // 8
-      if(inFullscreen()){
-        e.preventDefault(); e.stopImmediatePropagation();
-        move(1);
+    if(k===56){ // 8 = down
+      e.preventDefault(); e.stopImmediatePropagation();
+      if(inFullscreen()) move(1);
+      else {
+        const items=channelListEl.querySelectorAll('li[data-visible-index]');
+        if(items.length){
+          const n=Math.min(items.length-1,focusedVisibleIndex+1);
+          focusedVisibleIndex=n;
+          items[n].focus();
+        }
       }
       return;
     }
 
-    if(k===53){ // 5
-      if(inFullscreen() && overlay.classList.contains('show')){
-        e.preventDefault(); e.stopImmediatePropagation();
-        playSelected();
-      }
+    if(k===52){ // 4 = previous channel
+      e.preventDefault(); e.stopImmediatePropagation();
+      previousChannel();
+      return;
+    }
+
+    if(k===54){ // 6 = next channel
+      e.preventDefault(); e.stopImmediatePropagation();
+      nextChannel();
+      return;
+    }
+
+    if(k===53){ // 5 = confirm
+      e.preventDefault(); e.stopImmediatePropagation();
+      if(inFullscreen() && overlay.classList.contains('show')) playSelected();
+      else playVisibleIndex(focusedVisibleIndex);
       return;
     }
   },true);
 
-  document.addEventListener('fullscreenchange',function(){
-    if(document.fullscreenElement === playerSection){
-      hideOverlay();
-    }else{
-      hideOverlay();
-    }
-  });
-
-  /* HLS subtitle support:
-     hls.js exposes subtitleTracks/subtitleDisplay for HLS streams.
-     Native textTracks are handled as a fallback. */
+  // HLS subtitles. Use the actual lexical `hls` variable, not window.hls.
   window.__toggleSubtitles=function(){
-    if(window.hls && window.hls.subtitleTracks){
-      const list=window.hls.subtitleTracks;
-      if(list.length){
-        if(typeof window.hls.subtitleDisplay==='boolean'){
-          window.hls.subtitleDisplay=!window.hls.subtitleDisplay;
-          return window.hls.subtitleDisplay;
-        }
-      }
+    if(hls && hls.subtitleTracks && hls.subtitleTracks.length){
+      hls.subtitleDisplay=!hls.subtitleDisplay;
+      return hls.subtitleDisplay;
     }
-
     if(video && video.textTracks){
-      const subs=Array.from(video.textTracks).filter(t=>
-        t.kind==='subtitles' || t.kind==='captions'
-      );
+      const subs=Array.from(video.textTracks).filter(t=>t.kind==='subtitles'||t.kind==='captions');
       if(subs.length){
         const active=subs.findIndex(t=>t.mode==='showing');
         subs.forEach(t=>t.mode='disabled');
-        if(active<0) subs[0].mode='showing';
-        return active<0;
+        if(active<0){ subs[0].mode='showing'; return true; }
+        return false;
       }
     }
     return null;
   };
-})();
 
-(function(){
-  const b=document.getElementById('btn-subtitle');
-  if(!b) return;
-  b.addEventListener('click',function(e){
-    e.stopPropagation();
-    const state=window.__toggleSubtitles ? window.__toggleSubtitles() : null;
-    b.textContent = state===true ? 'SUB ✓' : 'SUB';
-  });
+  if(subButton){
+    subButton.addEventListener('click',function(e){
+      e.stopPropagation();
+      const state=window.__toggleSubtitles();
+      subButton.textContent=state===true?'SUB ✓':'SUB';
+    });
+  }
 })();
