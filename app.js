@@ -529,9 +529,15 @@ window.__vidaa = {
   }
 
   function filteredChannelIndices(){
-    return Array.from(channelListEl.querySelectorAll('li[data-global-index]'))
-      .map(li => Number(li.dataset.globalIndex))
-      .filter(i => Number.isInteger(i) && channels[i]);
+    // Do not depend on the DOM of the normal channel list here.
+    // On VIDAA the normal list can be rebuilt/hidden when entering fullscreen.
+    // visibleChannels is the authoritative list currently shown to the user.
+    if (Array.isArray(visibleChannels) && visibleChannels.length) {
+      return visibleChannels
+        .map(ch => channels.indexOf(ch))
+        .filter(i => i >= 0);
+    }
+    return channels.map((_, i) => i);
   }
 
   function paint(){
@@ -550,8 +556,10 @@ window.__vidaa = {
 
     indices.forEach((channelIndex,i)=>{
       const ch=channels[channelIndex];
+      if(!ch) return;
       const li=document.createElement('li');
       li.textContent=ch.title;
+      li.title=(ch.group ? ch.group+' — ' : '') + ch.title;
       li.dataset.channelIndex=String(channelIndex);
       li.addEventListener('click',function(e){
         e.stopPropagation();
