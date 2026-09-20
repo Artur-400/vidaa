@@ -50,73 +50,84 @@ body.tv-video-fullscreen video{
 }
 
 
-/* v0.3.2 corrected fullscreen overlay */
+/* v0.3.6 — robust fullscreen channel overlay for VIDAA */
 #fullscreenChannelOverlay{
   display:none;
-  position:absolute;
-  inset:0;
-  z-index:100000;
+  position:fixed !important;
+  left:0 !important;
+  top:0 !important;
+  width:100vw !important;
+  height:100vh !important;
+  z-index:2147483647 !important;
   pointer-events:none;
   overflow:hidden;
 }
-#fullscreenChannelOverlay.show{display:block}
+#fullscreenChannelOverlay.show{display:block !important}
 .fs-overlay-panel{
-  position:absolute;
-  left:0; top:0; bottom:0;
-  width:420px;
-  max-width:48vw;
-  height:100%;
-  min-height:0;
-  display:flex;
-  flex-direction:column;
+  position:absolute !important;
+  left:0 !important; top:0 !important; bottom:auto !important;
+  width:420px !important;
+  height:100vh !important;
+  max-width:48vw !important;
+  display:block !important;
+  box-sizing:border-box;
   background:rgba(3,20,24,.98);
   border-right:2px solid rgba(46,230,201,.55);
   box-shadow:8px 0 28px rgba(0,0,0,.55);
-  padding:18px 12px;
+  padding:18px 12px !important;
   pointer-events:auto;
   overflow:hidden;
 }
 .fs-overlay-title{
-  flex:0 0 auto;
+  display:block !important;
+  height:48px;
+  box-sizing:border-box;
   color:#e6f7ff;
   font-size:24px;
+  line-height:30px;
   font-weight:700;
   padding:4px 10px 12px;
 }
 #fullscreenChannelList{
-  flex:1 1 auto;
-  min-height:0;
-  display:block;
+  display:block !important;
+  box-sizing:border-box;
   list-style:none;
-  padding:0; margin:0;
-  overflow-y:auto;
-  overflow-x:hidden;
+  padding:0 !important; margin:0 !important;
+  width:100% !important;
+  height:calc(100vh - 112px) !important;
+  overflow-y:auto !important;
+  overflow-x:hidden !important;
 }
 #fullscreenChannelList li{
-  display:block;
-  width:100%;
-  min-height:48px;
-  padding:12px 14px;
+  display:block !important;
+  box-sizing:border-box;
+  width:100% !important;
+  height:52px !important;
+  min-height:52px !important;
+  padding:12px 14px !important;
+  margin:0 0 2px 0 !important;
+  border:0;
   border-bottom:1px solid rgba(255,255,255,.10);
-  color:#fff;
-  background:rgba(255,255,255,.035);
-  font-size:19px;
-  line-height:24px;
+  color:#fff !important;
+  background:rgba(255,255,255,.06);
+  font-size:19px !important;
+  line-height:28px !important;
   border-radius:5px;
-  margin-bottom:2px;
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
 }
 #fullscreenChannelList li.fs-selected{
-  outline:3px solid #2ee6c9;
-  background:rgba(46,230,201,.28);
+  outline:3px solid #2ee6c9 !important;
+  background:rgba(46,230,201,.30) !important;
 }
 .fs-overlay-hint{
-  flex:0 0 auto;
-  margin-top:10px;
+  display:block !important;
+  position:absolute !important;
+  left:12px !important; right:12px !important; bottom:12px !important;
+  box-sizing:border-box;
   padding:9px 10px;
-  background:rgba(0,0,0,.55);
+  background:rgba(0,0,0,.75);
   color:#b9f0e8;
   font-size:13px;
   border-radius:5px;
@@ -125,6 +136,7 @@ body.tv-video-fullscreen video{
 /* Restore the clean fullscreen appearance: no bottom channel/title strip. */
 #playerSection:fullscreen{
   position:fixed;
+  position:relative;
   inset:0;
   width:100vw;
   height:100vh;

@@ -545,7 +545,13 @@ window.__vidaa = {
     if(!items.length) return;
     fsFocus = Math.max(0, Math.min(fsFocus, items.length - 1));
     items.forEach((li,i)=>li.classList.toggle('fs-selected', i===fsFocus));
-    items[fsFocus].scrollIntoView({block:'nearest'});
+    const selected=items[fsFocus];
+    if(selected){
+      const top=selected.offsetTop;
+      const bottom=top+selected.offsetHeight;
+      if(top < overlayList.scrollTop) overlayList.scrollTop=top;
+      else if(bottom > overlayList.scrollTop+overlayList.clientHeight) overlayList.scrollTop=bottom-overlayList.clientHeight;
+    }
   }
 
   function buildOverlay(){
@@ -574,12 +580,14 @@ window.__vidaa = {
   function showOverlay(){
     buildOverlay();
     overlay.classList.add('show');
+    overlay.style.display='block';
     overlay.setAttribute('aria-hidden','false');
     paint();
   }
 
   function hideOverlay(){
     overlay.classList.remove('show');
+    overlay.style.display='none';
     overlay.setAttribute('aria-hidden','true');
   }
 
