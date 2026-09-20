@@ -591,7 +591,7 @@ window.__vidaa = {
 
 
 
-/* VIDAA IPTV v0.3.0 — fullscreen channel overlay */
+/* VIDAA IPTV v0.3.2 — corrected fullscreen overlay + HLS subtitles */
 (function(){
   const video = document.getElementById('player');
   const playerSection = document.getElementById('playerSection');
@@ -600,264 +600,174 @@ window.__vidaa = {
 
   let fsFocus = 0;
 
-  function isFullscreen(){
-    return !!document.fullscreenElement ||
+  function inFullscreen(){
+    return document.fullscreenElement === playerSection ||
            document.body.classList.contains('tv-video-fullscreen');
+  }
+
+  function filteredChannelIndices(){
+    // The main list can be filtered by group. Use its actual channel indexes.
+    return Array.from(channelListEl.querySelectorAll('li')).map(li=>{
+      const title = li.querySelector('.title');
+      return channels.findIndex(ch => ch.title === (title ? title.textContent : ''));
+    }).filter(i=>i>=0);
   }
 
   function buildOverlay(){
     if(!overlayList) return;
     overlayList.innerHTML = '';
 
-    const sourceItems = Array.from(channelListEl.querySelectorAll('li'));
-
-    sourceItems.forEach((srcLi, i)=>{
+    const indices = filteredChannelIndices();
+    indices.forEach((channelIndex, i)=>{
+      const ch = channels[channelIndex];
       const li = document.createElement('li');
-      li.textContent = srcLi.querySelector('.title')
-        ? srcLi.querySelector('.title').textContent
-        : (channels[i] ? channels[i].title : '');
-
-      li.dataset.index = String(i);
-      li.tabIndex = -1;
-
-      if(i === fsFocus) li.classList.add('fs-selected');
+      li.textContent = ch ? ch.title : '';
+      li.dataset.channelIndex = String(channelIndex);
+      li.className = i===fsFocus ? 'fs-selected' : '';
 
       li.addEventListener('click', function(e){
         e.stopPropagation();
-        fsFocus = i;
-        playOverlaySelection();
+        fsFocus=i;
+        playSelected();
       });
 
       overlayList.appendChild(li);
     });
 
-    paintOverlay();
+    // Start at current channel.
+    const current = indices.indexOf(currentIndex);
+    if(current>=0) fsFocus=current;
+    paint();
   }
 
-  function paintOverlay(){
-    if(!overlayList) return;
-    const items = Array.from(overlayList.children);
+  function paint(){
+    const items=Array.from(overlayList ? overlayList.children : []);
     if(!items.length) return;
-
-    fsFocus = Math.max(0, Math.min(fsFocus, items.length - 1));
-
-    items.forEach((li,i)=>{
-      li.classList.toggle('fs-selected', i === fsFocus);
-    });
-
-    if(overlay.classList.contains('show')){
+    fsFocus=Math.max(0,Math.min(fsFocus,items.length-1));
+    items.forEach((li,i)=>li.classList.toggle('fs-selected',i===fsFocus));
+    if(overlay.classList.contains('show'))
       items[fsFocus].scrollIntoView({block:'nearest'});
-    }
   }
 
   function showOverlay(){
-    if(!overlay) return;
-
-    /*
-     * The fullscreen element is playerSection, not the video itself.
-     * This allows the HTML overlay to remain visible above the video.
-     */
     buildOverlay();
     overlay.classList.add('show');
     overlay.setAttribute('aria-hidden','false');
-
-    // Start from the currently playing channel when possible.
-    const idx = Array.from(channelListEl.children)
-      .findIndex(li => li.classList.contains('active'));
-    if(idx >= 0){
-      fsFocus = idx;
-      paintOverlay();
-    }
   }
 
   function hideOverlay(){
-    if(!overlay) return;
     overlay.classList.remove('show');
     overlay.setAttribute('aria-hidden','true');
   }
 
-  function moveOverlay(delta){
-    const items = Array.from(overlayList ? overlayList.children : []);
-    if(!items.length) return;
-
-    fsFocus = Math.max(0, Math.min(fsFocus + delta, items.length - 1));
-    paintOverlay();
+  function move(delta){
+    if(!overlay.classList.contains('show')) showOverlay();
+    else {
+      fsFocus += delta;
+      paint();
+    }
   }
 
-  function playOverlaySelection(){
-    const items = Array.from(overlayList ? overlayList.children : []);
+  function playSelected(){
+    const items=Array.from(overlayList.children);
     if(!items.length) return;
-
-    const item = items[Math.max(0, Math.min(fsFocus, items.length - 1))];
-    const visibleIndex = Number(item.dataset.index);
-
-    if(Number.isInteger(visibleIndex)){
-      item.classList.add('fs-playing');
-      playByIndex(visibleIndex);
+    const idx=Number(items[fsFocus].dataset.channelIndex);
+    if(Number.isInteger(idx) && channels[idx]){
+      playByIndex(idx);
     }
-
     hideOverlay();
   }
 
   async function enterFullscreen(){
     try{
       if(document.fullscreenElement) return;
-
-      /*
-       * IMPORTANT:
-       * Fullscreen the player section rather than <video>.
-       * Otherwise an HTML channel overlay cannot be rendered above the video.
-       */
-      if(playerSection && playerSection.requestFullscreen){
+      if(playerSection.requestFullscreen){
         await playerSection.requestFullscreen();
-        return;
+      }else{
+        document.body.classList.add('tv-video-fullscreen');
       }
-
-      if(document.documentElement.requestFullscreen){
-        await document.documentElement.requestFullscreen();
-        return;
-      }
-
-      document.body.classList.add('tv-video-fullscreen');
     }catch(e){
-      console.warn('Fullscreen:', e);
+      console.warn('Fullscreen:',e);
     }
   }
 
-  // Physical OK arrives as click on this Hisense browser.
-  document.addEventListener('click', function(e){
+  // OK enters fullscreen only when not already fullscreen.
+  document.addEventListener('click',function(e){
     if(!e.isTrusted) return;
+    if(!inFullscreen()) enterFullscreen();
+  },true);
 
-    if(!isFullscreen()){
-      enterFullscreen();
-    }
-  }, true);
-
-  // In fullscreen: 2/8 open the channel overlay and move selection.
-  // 5 confirms the highlighted channel and closes the overlay.
-  window.addEventListener('keydown', function(e){
+  window.addEventListener('keydown',function(e){
     const k=e.keyCode;
 
-    if(k===50){ // 2 = up
-      e.preventDefault();
-      e.stopImmediatePropagation();
-
-      if(isFullscreen()){
-        if(!overlay.classList.contains('show')) showOverlay();
-        else moveOverlay(-1);
+    if(k===50){ // 2
+      if(inFullscreen()){
+        e.preventDefault(); e.stopImmediatePropagation();
+        move(-1);
       }
       return;
     }
 
-    if(k===56){ // 8 = down
-      e.preventDefault();
-      e.stopImmediatePropagation();
-
-      if(isFullscreen()){
-        if(!overlay.classList.contains('show')) showOverlay();
-        else moveOverlay(1);
+    if(k===56){ // 8
+      if(inFullscreen()){
+        e.preventDefault(); e.stopImmediatePropagation();
+        move(1);
       }
       return;
     }
 
-    if(k===53){ // 5 = confirm
-      if(isFullscreen() && overlay.classList.contains('show')){
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        playOverlaySelection();
+    if(k===53){ // 5
+      if(inFullscreen() && overlay.classList.contains('show')){
+        e.preventDefault(); e.stopImmediatePropagation();
+        playSelected();
       }
       return;
     }
-  }, true);
+  },true);
 
-  document.addEventListener('fullscreenchange', function(){
+  document.addEventListener('fullscreenchange',function(){
     if(document.fullscreenElement === playerSection){
-      document.body.classList.add('real-fullscreen-layout');
       hideOverlay();
     }else{
-      document.body.classList.remove('real-fullscreen-layout');
       hideOverlay();
     }
   });
+
+  /* HLS subtitle support:
+     hls.js exposes subtitleTracks/subtitleDisplay for HLS streams.
+     Native textTracks are handled as a fallback. */
+  window.__toggleSubtitles=function(){
+    if(window.hls && window.hls.subtitleTracks){
+      const list=window.hls.subtitleTracks;
+      if(list.length){
+        if(typeof window.hls.subtitleDisplay==='boolean'){
+          window.hls.subtitleDisplay=!window.hls.subtitleDisplay;
+          return window.hls.subtitleDisplay;
+        }
+      }
+    }
+
+    if(video && video.textTracks){
+      const subs=Array.from(video.textTracks).filter(t=>
+        t.kind==='subtitles' || t.kind==='captions'
+      );
+      if(subs.length){
+        const active=subs.findIndex(t=>t.mode==='showing');
+        subs.forEach(t=>t.mode='disabled');
+        if(active<0) subs[0].mode='showing';
+        return active<0;
+      }
+    }
+    return null;
+  };
 })();
 
-
-
-/* VIDAA IPTV v0.3.1 — subtitle toggle / diagnostics */
 (function(){
-  const btn = document.getElementById('btn-subtitle');
-  const video = document.getElementById('player');
-
-  function tracks(){
-    if(!video || !video.textTracks) return [];
-    return Array.from(video.textTracks);
-  }
-
-  function getSubtitleTracks(){
-    return tracks().filter(t =>
-      t.kind === 'subtitles' ||
-      t.kind === 'captions'
-    );
-  }
-
-  function refreshButton(){
-    if(!btn) return;
-    const subs = getSubtitleTracks();
-    const active = subs.some(t => t.mode === 'showing');
-    btn.textContent = active ? 'SUB ✓' : 'SUB';
-    btn.style.outline = active ? '2px solid #2ee6c9' : '';
-  }
-
-  function cycleSubtitles(){
-    const subs = getSubtitleTracks();
-
-    if(!subs.length){
-      console.log('SUBTITLE: no subtitle tracks available');
-      return;
-    }
-
-    const activeIndex = subs.findIndex(t => t.mode === 'showing');
-
-    // Turn everything off first.
-    subs.forEach(t => { t.mode = 'disabled'; });
-
-    // If something was active, next press turns subtitles off.
-    // Otherwise activate the first track.
-    if(activeIndex < 0){
-      subs[0].mode = 'showing';
-    }
-
-    refreshButton();
-    console.log('SUBTITLE tracks:', subs.map(t => ({
-      label:t.label, language:t.language, mode:t.mode
-    })));
-  }
-
-  if(btn) btn.addEventListener('click', cycleSubtitles);
-
-  // Keep track of subtitle tracks when the stream changes.
-  if(video){
-    video.addEventListener('loadedmetadata', ()=>{
-      setTimeout(refreshButton, 100);
-      setTimeout(refreshButton, 500);
-      setTimeout(refreshButton, 1500);
-
-      console.log('SUBTITLE diagnostic:', {
-        textTracks: video.textTracks ? video.textTracks.length : 0,
-        tracks: tracks().map(t=>({
-          kind:t.kind,
-          label:t.label,
-          language:t.language,
-          mode:t.mode
-        }))
-      });
-    });
-  }
-
-  window.__subtitle = {
-    tracks,
-    getSubtitleTracks,
-    cycleSubtitles,
-    refreshButton
-  };
+  const b=document.getElementById('btn-subtitle');
+  if(!b) return;
+  b.addEventListener('click',function(e){
+    e.stopPropagation();
+    const state=window.__toggleSubtitles ? window.__toggleSubtitles() : null;
+    b.textContent = state===true ? 'SUB ✓' : 'SUB';
+  });
 })();
