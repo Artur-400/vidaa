@@ -28,7 +28,7 @@ main{display:flex;flex:1;overflow:hidden}
 #playerSection{flex:1;display:flex;flex-direction:column;align-items:stretch;padding:18px}
 .video-wrap{position:relative;flex:1;background:#000;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center}
 video{width:100%;height:100%;background:#000}
-#videoMessage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#8da6ab;font-size:20px;pointer-events:none}
+#videoMessage{position:absolute;top:0; right:0; bottom:0; left:0;display:flex;align-items:center;justify-content:center;color:#8da6ab;font-size:20px;pointer-events:none}
 #now{margin-top:10px;padding:6px 8px;background:linear-gradient(90deg,#031a1f,#042b2f);border-radius:6px;color:#bff7ea}
 footer{padding:8px 12px;background:#021014;color:#89d9c9;font-size:12px}
 @media (max-width:900px){#sidebar{width:280px}}
@@ -40,7 +40,7 @@ body.tv-video-fullscreen #app footer,
 body.tv-video-fullscreen #sidebar,
 body.tv-video-fullscreen #now{display:none}
 body.tv-video-fullscreen #playerSection{
-  position:fixed; inset:0; z-index:99999; padding:0; background:#000;
+  position:fixed; top:0; right:0; bottom:0; left:0; z-index:99999; padding:0; background:#000;
 }
 body.tv-video-fullscreen .video-wrap{
   width:100vw; height:100vh; border-radius:0;
@@ -50,85 +50,20 @@ body.tv-video-fullscreen video{
 }
 
 
-/* v0.3.8 — simple VIDAA fullscreen channel picker */
-#fullscreenChannelOverlay{
-  display:none;
-  position:absolute;
-  inset:0;
-  z-index:100000;
-  pointer-events:none;
-}
-#fullscreenChannelOverlay.show{display:block !important}
-.fs-overlay-panel{
-  position:absolute;
-  left:0; top:0; bottom:0;
-  width:390px;
-  max-width:45vw;
-  background:rgba(3,20,24,.97);
-  border-right:2px solid rgba(46,230,201,.55);
-  box-shadow:8px 0 28px rgba(0,0,0,.55);
-  padding:18px 12px;
-  pointer-events:auto;
-  overflow:hidden;
-}
-.fs-overlay-title{
-  display:block;
-  color:#e6f7ff;
-  font-size:22px;
-  line-height:28px;
-  font-weight:700;
-  height:42px;
-  padding:4px 10px 10px;
-}
-#fullscreenChannelList{
-  position:absolute;
-  left:12px;
-  right:12px;
-  top:68px;
-  bottom:58px;
-  list-style:none;
-  padding:0; margin:0;
-  overflow:hidden;
-}
-#fullscreenChannelList li{
-  display:block;
-  width:100%;
-  height:48px;
-  min-height:48px;
-  padding:9px 14px;
-  margin:0;
-  box-sizing:border-box;
-  border-bottom:1px solid rgba(255,255,255,.07);
-  color:#e6f7ff;
-  background:rgba(255,255,255,.035);
-  font-size:18px;
-  line-height:30px;
-  border-radius:5px;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-}
-#fullscreenChannelList li.fs-selected{
-  outline:3px solid #2ee6c9;
-  background:rgba(46,230,201,.22);
-}
-.fs-overlay-hint{
-  position:absolute;
-  left:12px; right:12px; bottom:12px;
-  height:34px;
-  box-sizing:border-box;
-  padding:7px 10px;
-  background:rgba(0,0,0,.75);
-  color:#b9f0e8;
-  font-size:13px;
-  line-height:20px;
-  border-radius:5px;
-}
+/* v0.3.9 — simple fullscreen channel picker */
+#fullscreenChannelOverlay{display:none;position:absolute;top:0;left:0;width:100%;height:100%;z-index:100000;pointer-events:none}
+#fullscreenChannelOverlay.show{display:block}
+.fs-overlay-panel{position:absolute;left:0;top:0;bottom:0;width:390px;height:100%;background:rgba(3,20,24,.97);padding:18px 12px;box-sizing:border-box;pointer-events:auto;overflow:hidden}
+.fs-overlay-title{height:42px;color:#e6f7ff;font-size:22px;line-height:28px;font-weight:700;padding:4px 10px 10px;box-sizing:border-box}
+#fullscreenChannelList{position:absolute;left:12px;right:12px;top:68px;bottom:55px;list-style:none;padding:0;margin:0;overflow:hidden}
+#fullscreenChannelList li{display:block;width:100%;height:48px;min-height:48px;padding:9px 14px;margin:0;box-sizing:border-box;border-bottom:1px solid rgba(255,255,255,.07);color:#e6f7ff;background:rgba(255,255,255,.035);font-size:18px;line-height:30px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#fullscreenChannelList li.fs-selected{outline:3px solid #2ee6c9;background:rgba(46,230,201,.22)}
+.fs-overlay-hint{position:absolute;left:12px;right:12px;bottom:12px;height:32px;padding:6px 10px;box-sizing:border-box;background:rgba(0,0,0,.75);color:#b9f0e8;font-size:13px;line-height:20px}
 
 /* Restore the clean fullscreen appearance: no bottom channel/title strip. */
 #playerSection:fullscreen{
   position:fixed;
-  inset:0;
+  top:0; right:0; bottom:0; left:0;
   width:100vw;
   height:100vh;
   padding:0;
@@ -136,7 +71,7 @@ body.tv-video-fullscreen video{
 }
 #playerSection:fullscreen .video-wrap{
   position:absolute;
-  inset:0;
+  top:0; right:0; bottom:0; left:0;
   width:100%;
   height:100%;
   border-radius:0;
@@ -156,7 +91,7 @@ body.tv-video-fullscreen #now{display:none}
 /* v0.3.3: Hisense/VIDAA fullscreen fallback + API fullscreen */
 #playerSection.is-fullscreen{
   position:fixed !important;
-  inset:0 !important;
+  top:0 !important; right:0 !important; bottom:0 !important; left:0 !important;
   z-index:99999 !important;
   width:100vw !important;
   height:100vh !important;
@@ -165,7 +100,7 @@ body.tv-video-fullscreen #now{display:none}
 }
 #playerSection.is-fullscreen .video-wrap{
   position:absolute !important;
-  inset:0 !important;
+  top:0 !important; right:0 !important; bottom:0 !important; left:0 !important;
   width:100% !important;
   height:100% !important;
   border-radius:0 !important;

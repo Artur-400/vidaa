@@ -1,4 +1,4 @@
-// VIDAA IPTV v0.2.1
+// VIDAA IPTV v0.3.10
 // Основа сохранена максимально близко к рабочей версии пользователя.
 
 const player = document.getElementById('player');
@@ -513,7 +513,7 @@ window.__vidaa = {
 
 
 
-/* VIDAA IPTV v0.3.3 — unified numeric remote + fullscreen channel picker */
+/* VIDAA IPTV v0.3.10 — stable fullscreen channel picker for Hisense/VIDAA */
 (function(){
   const playerSection = document.getElementById('playerSection');
   const overlay = document.getElementById('fullscreenChannelOverlay');
@@ -523,62 +523,83 @@ window.__vidaa = {
   let fsFocus = 0;
 
   function inFullscreen(){
-    return document.fullscreenElement === playerSection ||
+    return !!(document.fullscreenElement || document.webkitFullscreenElement) ||
            document.body.classList.contains('tv-video-fullscreen') ||
            playerSection.classList.contains('is-fullscreen');
   }
 
-  function filteredChannelIndices(){
-    // Do not depend on the DOM of the normal channel list here.
-    // On VIDAA the normal list can be rebuilt/hidden when entering fullscreen.
-    // visibleChannels is the authoritative list currently shown to the user.
-    if (Array.isArray(visibleChannels) && visibleChannels.length) {
-      return visibleChannels
-        .map(ch => channels.indexOf(ch))
-        .filter(i => i >= 0);
+  // Temporary on-screen key debug (shows keyCode / fullscreen state on the TV).
+  // Set to false once everything works.
+  const DEBUG_KEYS = true;
+  let dbgEl = null;
+  function dbg(text){
+    if(!DEBUG_KEYS) return;
+    if(!dbgEl){
+      dbgEl = document.createElement('div');
+      dbgEl.style.cssText = 'position:absolute;right:8px;top:8px;z-index:100001;' +
+        'padding:4px 10px;background:rgba(0,0,0,.75);color:#2ee6c9;font:16px monospace;pointer-events:none';
+      playerSection.appendChild(dbgEl);
     }
-    return channels.map((_, i) => i);
+    dbgEl.textContent = text;
+  }
+
+  function getIndices(){
+    const list = Array.isArray(visibleChannels) && visibleChannels.length ? visibleChannels : channels;
+    return list.map(ch => channels.indexOf(ch)).filter(i => i >= 0);
   }
 
   function paint(){
-    const items = Array.from(overlayList.children);
+    const items = overlayList ? overlayList.children : [];
     if(!items.length) return;
-    fsFocus = Math.max(0, Math.min(fsFocus, items.length - 1));
-    items.forEach((li,i)=>li.classList.toggle('fs-selected', i===fsFocus));
-    items[fsFocus].scrollIntoView({block:'nearest'});
+    if(fsFocus < 0) fsFocus = 0;
+    if(fsFocus >= items.length) fsFocus = items.length - 1;
+    for(let i=0;i<items.length;i++) items[i].classList.toggle('fs-selected', i === fsFocus);
+    // Do not use scrollIntoView on VIDAA; it can move the browser pointer/focus.
+    const selected = items[fsFocus];
+    if(selected && overlayList) {
+      const top = selected.offsetTop;
+      const bottom = top + selected.offsetHeight;
+      if(top < overlayList.scrollTop) overlayList.scrollTop = top;
+      else if(bottom > overlayList.scrollTop + overlayList.clientHeight)
+        overlayList.scrollTop = bottom - overlayList.clientHeight;
+    }
   }
 
   function buildOverlay(){
-    overlayList.innerHTML='';
-    const indices=filteredChannelIndices();
-    const current=indices.indexOf(currentIndex);
-    fsFocus=current>=0 ? current : 0;
+    if(!overlayList) return false;
+    const indices = getIndices();
+    overlayList.innerHTML = '';
+    const current = indices.indexOf(currentIndex);
+    fsFocus = current >= 0 ? current : 0;
 
-    indices.forEach((channelIndex,i)=>{
-      const ch=channels[channelIndex];
-      if(!ch) return;
-      const li=document.createElement('li');
-      li.textContent=ch.title;
-      li.title=(ch.group ? ch.group+' — ' : '') + ch.title;
-      li.dataset.channelIndex=String(channelIndex);
-      li.addEventListener('click',function(e){
+    for(let i=0;i<indices.length;i++){
+      const channelIndex = indices[i];
+      const ch = channels[channelIndex];
+      if(!ch) continue;
+      const li = document.createElement('li');
+      li.textContent = ch.title || 'Без названия';
+      li.dataset.channelIndex = String(channelIndex);
+      li.onclick = function(e){
         e.stopPropagation();
-        fsFocus=i;
+        fsFocus = i;
         playSelected();
-      });
+      };
       overlayList.appendChild(li);
-    });
+    }
     paint();
+    return overlayList.children.length > 0;
   }
 
   function showOverlay(){
-    buildOverlay();
+    if(!overlay || !overlayList) return;
+    try { buildOverlay(); } catch(err) { console.log('picker build', err); dbg('build error: ' + err); }
     overlay.classList.add('show');
     overlay.setAttribute('aria-hidden','false');
     paint();
   }
 
   function hideOverlay(){
+    if(!overlay) return;
     overlay.classList.remove('show');
     overlay.setAttribute('aria-hidden','true');
   }
@@ -589,116 +610,88 @@ window.__vidaa = {
   }
 
   function playSelected(){
-    const items=Array.from(overlayList.children);
+    const items = overlayList ? overlayList.children : [];
     if(!items.length) return;
-    const idx=Number(items[fsFocus].dataset.channelIndex);
+    const idx = Number(items[fsFocus].dataset.channelIndex);
     if(Number.isInteger(idx) && channels[idx]) playByIndex(idx);
     hideOverlay();
   }
 
   function previousChannel(){
     if(!channels.length) return;
-    let i=(typeof currentIndex==='number' ? currentIndex : 0)-1;
-    if(i<0) i=channels.length-1;
+    let i = (typeof currentIndex === 'number' ? currentIndex : 0) - 1;
+    if(i < 0) i = channels.length - 1;
     playByIndex(i);
   }
 
   function nextChannel(){
     if(!channels.length) return;
-    let i=(typeof currentIndex==='number' ? currentIndex : -1)+1;
-    if(i>=channels.length) i=0;
+    let i = (typeof currentIndex === 'number' ? currentIndex : -1) + 1;
+    if(i >= channels.length) i = 0;
     playByIndex(i);
   }
 
   async function enterFullscreen(){
     try{
-      if(document.fullscreenElement===playerSection) return;
-      if(playerSection.requestFullscreen){
-        await playerSection.requestFullscreen();
-      }else{
+      if(document.fullscreenElement === playerSection) return;
+      if(playerSection.requestFullscreen) await playerSection.requestFullscreen();
+      else {
         document.body.classList.add('tv-video-fullscreen');
         playerSection.classList.add('is-fullscreen');
       }
     }catch(e){
-      console.warn('Fullscreen:',e);
       document.body.classList.add('tv-video-fullscreen');
       playerSection.classList.add('is-fullscreen');
     }
   }
 
-  // Physical OK arrives as click on this TV. First OK enters fullscreen.
-  document.addEventListener('click',function(e){
-    if(!e.isTrusted) return;
-    if(!inFullscreen()) enterFullscreen();
-  },true);
+  // On this VIDAA browser OK is delivered as a click.
+  document.addEventListener('click', function(e){
+    if(e.isTrusted && !inFullscreen()) enterFullscreen();
+  }, true);
 
-  document.addEventListener('fullscreenchange',function(){
-    const active=document.fullscreenElement===playerSection;
-    playerSection.classList.toggle('is-fullscreen',active);
-    if(active){ hideOverlay(); try{ playerSection.focus(); }catch(_){} }
-    else hideOverlay();
+  document.addEventListener('fullscreenchange', function(){
+    const active = document.fullscreenElement === playerSection;
+    playerSection.classList.toggle('is-fullscreen', active);
+    hideOverlay();
   });
 
-  // One — and only one — numeric remote handler. This fixes the old
-  // stopImmediatePropagation handler that prevented the fullscreen picker
-  // from ever receiving 2/8/5.
-  // VIDAA can deliver remote numeric buttons as keydown, keypress or keyup
-  // depending on whether its browser is in fullscreen. Handle all three, but
-  // deduplicate the same physical press so one press = one action.
-  let lastNumericKey = -1;
-  let lastNumericAt = 0;
-  function handleNumeric(e){
-    const k = Number(e.keyCode || e.which);
-    if (![50,52,53,54,56].includes(k)) return;
+  // IMPORTANT: VIDAA was previously proven to deliver these number keys as keydown
+  // with keyCodes 50/52/53/54/56. Keep exactly one keydown handler.
+  window.addEventListener('keydown', function(e){
+    let k = e.keyCode || e.which;
+    // Fallback if the TV reports key names instead of numeric codes
+    if(!k && /^[0-9]$/.test(e.key || '')) k = 48 + Number(e.key);
+    dbg('key=' + k + ' fs=' + inFullscreen() + ' overlay=' + (overlay ? overlay.classList.contains('show') : 'none'));
 
-    const now = Date.now();
-    if (k === lastNumericKey && now - lastNumericAt < 180) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      return;
-    }
-    lastNumericKey = k;
-    lastNumericAt = now;
-
-    e.preventDefault();
-    e.stopImmediatePropagation();
-
-    if(k===50){ // 2 = up
+    if(k === 50){
+      e.preventDefault(); e.stopImmediatePropagation();
       if(inFullscreen()) move(-1);
       else {
         const items=channelListEl.querySelectorAll('li[data-visible-index]');
-        if(items.length){
-          const n=Math.max(0,focusedVisibleIndex-1);
-          focusedVisibleIndex=n;
-          items[n].focus();
-        }
+        if(items.length){ focusedVisibleIndex=Math.max(0,focusedVisibleIndex-1); items[focusedVisibleIndex].focus(); }
       }
       return;
     }
-    if(k===56){ // 8 = down
+    if(k === 56){
+      e.preventDefault(); e.stopImmediatePropagation();
       if(inFullscreen()) move(1);
       else {
         const items=channelListEl.querySelectorAll('li[data-visible-index]');
-        if(items.length){
-          const n=Math.min(items.length-1,focusedVisibleIndex+1);
-          focusedVisibleIndex=n;
-          items[n].focus();
-        }
+        if(items.length){ focusedVisibleIndex=Math.min(items.length-1,focusedVisibleIndex+1); items[focusedVisibleIndex].focus(); }
       }
       return;
     }
-    if(k===52){ previousChannel(); return; }
-    if(k===54){ nextChannel(); return; }
-    if(k===53){
+    if(k === 52){ e.preventDefault(); e.stopImmediatePropagation(); previousChannel(); return; }
+    if(k === 54){ e.preventDefault(); e.stopImmediatePropagation(); nextChannel(); return; }
+    if(k === 53){
+      e.preventDefault(); e.stopImmediatePropagation();
       if(inFullscreen() && overlay.classList.contains('show')) playSelected();
       else playVisibleIndex(focusedVisibleIndex);
+      return;
     }
-  }
-  window.addEventListener('keydown', handleNumeric, true);
-  window.addEventListener('keypress', handleNumeric, true);
-  window.addEventListener('keyup', handleNumeric, true);
+  }, true);
 
-  // HLS subtitles. Use the actual lexical `hls` variable, not window.hls.
   window.__toggleSubtitles=function(){
     if(hls && hls.subtitleTracks && hls.subtitleTracks.length){
       hls.subtitleDisplay=!hls.subtitleDisplay;
@@ -709,18 +702,15 @@ window.__vidaa = {
       if(subs.length){
         const active=subs.findIndex(t=>t.mode==='showing');
         subs.forEach(t=>t.mode='disabled');
-        if(active<0){ subs[0].mode='showing'; return true; }
+        if(active<0){subs[0].mode='showing';return true;}
         return false;
       }
     }
     return null;
   };
-
-  if(subButton){
-    subButton.addEventListener('click',function(e){
-      e.stopPropagation();
-      const state=window.__toggleSubtitles();
-      subButton.textContent=state===true?'SUB ✓':'SUB';
-    });
-  }
+  if(subButton) subButton.addEventListener('click',function(e){
+    e.stopPropagation();
+    const state=window.__toggleSubtitles();
+    subButton.textContent=state===true?'SUB ✓':'SUB';
+  });
 })();
