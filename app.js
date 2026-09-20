@@ -545,13 +545,7 @@ window.__vidaa = {
     if(!items.length) return;
     fsFocus = Math.max(0, Math.min(fsFocus, items.length - 1));
     items.forEach((li,i)=>li.classList.toggle('fs-selected', i===fsFocus));
-    const selected=items[fsFocus];
-    if(selected){
-      const top=selected.offsetTop;
-      const bottom=top+selected.offsetHeight;
-      if(top < overlayList.scrollTop) overlayList.scrollTop=top;
-      else if(bottom > overlayList.scrollTop+overlayList.clientHeight) overlayList.scrollTop=bottom-overlayList.clientHeight;
-    }
+    items[fsFocus].scrollIntoView({block:'nearest'});
   }
 
   function buildOverlay(){
@@ -580,14 +574,12 @@ window.__vidaa = {
   function showOverlay(){
     buildOverlay();
     overlay.classList.add('show');
-    overlay.style.display='block';
     overlay.setAttribute('aria-hidden','false');
     paint();
   }
 
   function hideOverlay(){
     overlay.classList.remove('show');
-    overlay.style.display='none';
     overlay.setAttribute('aria-hidden','true');
   }
 
@@ -643,18 +635,35 @@ window.__vidaa = {
   document.addEventListener('fullscreenchange',function(){
     const active=document.fullscreenElement===playerSection;
     playerSection.classList.toggle('is-fullscreen',active);
-    if(active) hideOverlay();
+    if(active){ hideOverlay(); try{ playerSection.focus(); }catch(_){} }
     else hideOverlay();
   });
 
   // One — and only one — numeric remote handler. This fixes the old
   // stopImmediatePropagation handler that prevented the fullscreen picker
   // from ever receiving 2/8/5.
-  window.addEventListener('keydown',function(e){
-    const k=e.keyCode;
+  // VIDAA can deliver remote numeric buttons as keydown, keypress or keyup
+  // depending on whether its browser is in fullscreen. Handle all three, but
+  // deduplicate the same physical press so one press = one action.
+  let lastNumericKey = -1;
+  let lastNumericAt = 0;
+  function handleNumeric(e){
+    const k = Number(e.keyCode || e.which);
+    if (![50,52,53,54,56].includes(k)) return;
+
+    const now = Date.now();
+    if (k === lastNumericKey && now - lastNumericAt < 180) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
+    lastNumericKey = k;
+    lastNumericAt = now;
+
+    e.preventDefault();
+    e.stopImmediatePropagation();
 
     if(k===50){ // 2 = up
-      e.preventDefault(); e.stopImmediatePropagation();
       if(inFullscreen()) move(-1);
       else {
         const items=channelListEl.querySelectorAll('li[data-visible-index]');
@@ -666,9 +675,7 @@ window.__vidaa = {
       }
       return;
     }
-
     if(k===56){ // 8 = down
-      e.preventDefault(); e.stopImmediatePropagation();
       if(inFullscreen()) move(1);
       else {
         const items=channelListEl.querySelectorAll('li[data-visible-index]');
@@ -680,26 +687,16 @@ window.__vidaa = {
       }
       return;
     }
-
-    if(k===52){ // 4 = previous channel
-      e.preventDefault(); e.stopImmediatePropagation();
-      previousChannel();
-      return;
-    }
-
-    if(k===54){ // 6 = next channel
-      e.preventDefault(); e.stopImmediatePropagation();
-      nextChannel();
-      return;
-    }
-
-    if(k===53){ // 5 = confirm
-      e.preventDefault(); e.stopImmediatePropagation();
+    if(k===52){ previousChannel(); return; }
+    if(k===54){ nextChannel(); return; }
+    if(k===53){
       if(inFullscreen() && overlay.classList.contains('show')) playSelected();
       else playVisibleIndex(focusedVisibleIndex);
-      return;
     }
-  },true);
+  }
+  window.addEventListener('keydown', handleNumeric, true);
+  window.addEventListener('keypress', handleNumeric, true);
+  window.addEventListener('keyup', handleNumeric, true);
 
   // HLS subtitles. Use the actual lexical `hls` variable, not window.hls.
   window.__toggleSubtitles=function(){
