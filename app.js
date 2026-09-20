@@ -1,4 +1,4 @@
-// VIDAA IPTV v0.3.16
+// VIDAA IPTV v0.3.18
 // Основа сохранена максимально близко к рабочей версии пользователя.
 
 const player = document.getElementById('player');
@@ -20,12 +20,26 @@ let focusedVisibleIndex = 0;
 let hls = null;
 
 const STORAGE_KEY = 'vidaa_iptv_last';
+const PLAYLIST_KEY = 'vidaa_iptv_playlist';
+
+// Playlists (loaded from playlists.json, see initPlaylists)
+let playlists = [];
+let playlistIndex = -1;
+let loadSeq = 0;
+const playlistHeaderEl = document.getElementById('playlistHeader');
+
+function currentPlaylistUrl() {
+  const p = playlists[playlistIndex];
+  return p ? p.url : (typeof M3U_URL !== 'undefined' ? M3U_URL : '');
+}
+// last watched channel is remembered separately for every playlist
+function lastKey() { return STORAGE_KEY + '|' + currentPlaylistUrl(); }
 const VOLUME_KEY = 'vidaa_vol';
 
 function setVolume(v) {
   v = Math.max(0, Math.min(1, v));
   player.volume = v;
-  volLabel.textContent = Math.round(v * 100) + '%';
+  if (volLabel) volLabel.textContent = Math.round(v * 100) + '%';
   localStorage.setItem(VOLUME_KEY, String(v));
 }
 
@@ -35,9 +49,9 @@ function togglePlay() {
   else player.pause();
 }
 
-btnPlay.addEventListener('click', togglePlay);
-btnPrev.addEventListener('click', () => stepVisible(-1, true));
-btnNext.addEventListener('click', () => stepVisible(1, true));
+if (btnPlay) btnPlay.addEventListener('click', togglePlay);
+if (btnPrev) btnPrev.addEventListener('click', () => stepVisible(-1, true));
+if (btnNext) btnNext.addEventListener('click', () => stepVisible(1, true));
 
 function parseAttribute(line, name) {
   const re = new RegExp(name + '="([^"]*)"', 'i');
@@ -68,9 +82,9 @@ function parseExtInf(line) {
   };
 }
 
-function parseM3U(text) {
-  channels = [];
-  groups = ['Все'];
+function extractM3U(text) {
+  const outChannels = [];
+  const outGroups = ['Все'];
 
   const lines = text.split(/\r?\n/).map(line => line.trim());
   let cur = null;
@@ -85,16 +99,23 @@ function parseM3U(text) {
 
     if (!line.startsWith('#') && cur) {
       cur.url = line;
-      if (cur.url) channels.push(cur);
+      if (cur.url) outChannels.push(cur);
 
-      if (cur.group && !groups.includes(cur.group)) {
-        groups.push(cur.group);
+      if (cur.group && !outGroups.includes(cur.group)) {
+        outGroups.push(cur.group);
       }
       cur = null;
     }
   }
 
-  // Сохраняем порядок плейлиста — так номера каналов не прыгают.
+  // Порядок плейлиста сохраняем — так номера каналов не прыгают.
+  return { channels: outChannels, groups: outGroups };
+}
+
+function parseM3U(text) {
+  const r = extractM3U(text);
+  channels = r.channels;
+  groups = r.groups;
   renderGroups();
   renderChannels(currentGroup);
 }
@@ -260,7 +281,7 @@ function playByIndex(idx) {
   nowTitle.textContent = ch.title + (ch.group ? ' — ' + ch.group : '');
   videoMessage.style.display = 'none';
 
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  localStorage.setItem(lastKey(), JSON.stringify({
     index: idx,
     url: ch.url,
     title: ch.title,
@@ -336,40 +357,140 @@ function playStream(url) {
   }
 }
 
-async function loadM3U(url) {
+// Returns true = loaded, false = failed, null = superseded by a newer request
+async function loadM3U(url, opts) {
+  opts = opts || {};
+  const seq = ++loadSeq;
+  let parsed;
+
   try {
     const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) {
-      throw new Error('HTTP ' + res.status);
-    }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
 
     const text = await res.text();
+    if (!text.includes('#EXTINF')) throw new Error('Плейлист не содержит #EXTINF');
 
-    if (!text.includes('#EXTINF')) {
-      throw new Error('Плейлист не содержит #EXTINF');
-    }
-
-    parseM3U(text);
-
-    if (!channels.length) {
-      throw new Error('Не найдено ни одного канала');
-    }
-
-    restoreLast();
+    parsed = extractM3U(text);
+    if (!parsed.channels.length) throw new Error('Не найдено ни одного канала');
   } catch (e) {
     console.error('M3U:', e);
+    if (seq !== loadSeq) return null;
+
+    if (opts.keepOnError && channels.length) {
+      // switching playlists: keep the old list and the running channel
+      if (window.__toast) window.__toast('Не удалось загрузить плейлист');
+      return false;
+    }
+
     channelListEl.innerHTML = '';
     const error = document.createElement('li');
     error.className = 'empty error';
     error.textContent = 'Ошибка загрузки плейлиста';
     channelListEl.appendChild(error);
     nowTitle.textContent = 'Не удалось загрузить плейлист';
+    return false;
   }
+
+  if (seq !== loadSeq) return null;
+
+  if (opts.stopFirst) stopPlayback();
+
+  channels = parsed.channels;
+  groups = parsed.groups;
+  currentGroup = 'Все';
+  currentIndex = null;
+  focusedVisibleIndex = 0;
+
+  renderGroups();
+  renderChannels('Все');
+  restoreLast();
+  return true;
+}
+
+// ---------- playlists ----------
+const DEFAULT_PLAYLISTS = [
+  { name: 'DE_My', url: (typeof M3U_URL !== 'undefined' ? M3U_URL : ''), default: true }
+];
+
+async function loadPlaylistsConfig() {
+  try {
+    const res = await fetch('playlists.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const list = Array.isArray(data) ? data : (data && data.playlists);
+
+    const clean = (list || [])
+      .filter(p => p && p.url)
+      .map(p => ({
+        name: String(p.name || String(p.url).split('/').pop().replace(/\.m3u8?$/i, '')),
+        url: String(p.url),
+        default: !!p.default
+      }));
+
+    if (clean.length) return clean;
+  } catch (e) {
+    console.warn('playlists.json:', e);
+  }
+  return DEFAULT_PLAYLISTS;
+}
+
+function renderPlaylistHeader() {
+  if (!playlistHeaderEl) return;
+  const p = playlists[playlistIndex];
+  playlistHeaderEl.textContent = 'Плейлист' + (p ? ': ' + p.name : '') +
+    (playlists.length > 1 ? '  ▾ (7)' : '');
+}
+
+async function selectPlaylist(idx, opts) {
+  opts = opts || {};
+  if (idx < 0 || idx >= playlists.length) return false;
+
+  const prev = playlistIndex;
+  playlistIndex = idx;          // needed by restoreLast() (per-playlist "last channel")
+  renderPlaylistHeader();
+
+  const ok = await loadM3U(playlists[idx].url, {
+    stopFirst: !opts.initial,
+    keepOnError: !opts.initial
+  });
+
+  if (ok === null) return false;              // a newer selection is in charge now
+  if (!ok) {
+    if (playlistIndex === idx && !opts.initial) playlistIndex = prev;   // stay on the old playlist
+    renderPlaylistHeader();
+    return false;
+  }
+
+  try { localStorage.setItem(PLAYLIST_KEY, playlists[idx].url); } catch (_) {}
+  if (!opts.initial && window.__toast) window.__toast('Плейлист: ' + playlists[idx].name);
+  return true;
+}
+
+async function initPlaylists() {
+  playlists = await loadPlaylistsConfig();
+
+  let saved = null;
+  try { saved = localStorage.getItem(PLAYLIST_KEY); } catch (_) {}
+
+  let idx = playlists.findIndex(p => p.url === saved);
+  if (idx < 0) idx = playlists.findIndex(p => p.default);
+  if (idx < 0) idx = 0;
+
+  await selectPlaylist(idx, { initial: true });
+}
+
+if (playlistHeaderEl) {
+  playlistHeaderEl.style.cursor = 'pointer';
+  playlistHeaderEl.addEventListener('click', () => {
+    if (window.__openPlaylistPicker) window.__openPlaylistPicker();
+  });
 }
 
 function restoreLast() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    let raw = localStorage.getItem(lastKey());
+    // older versions stored one global "last channel" (that was the DE_My playlist)
+    if (!raw && /DE_My\.m3u/i.test(currentPlaylistUrl())) raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       focusFirstChannel();
       return;
@@ -505,7 +626,7 @@ player.addEventListener('error', () => {
 const savedVol = parseFloat(localStorage.getItem(VOLUME_KEY) || '1');
 setVolume(Number.isFinite(savedVol) ? savedVol : 1);
 
-loadM3U(M3U_URL);
+initPlaylists();
 
 window.__vidaa = {
   get channels() { return channels; },
@@ -513,12 +634,14 @@ window.__vidaa = {
   playStream,
   loadM3U,
   parseM3U,
+  selectPlaylist,
+  get playlists() { return playlists; },
   get visibleChannels() { return visibleChannels; }
 };
 
 
 
-/* VIDAA IPTV v0.3.16 — stable fullscreen channel picker for Hisense/VIDAA */
+/* VIDAA IPTV v0.3.18 — stable fullscreen channel picker for Hisense/VIDAA */
 (function(){
   const playerSection = document.getElementById('playerSection');
   const overlay = document.getElementById('fullscreenChannelOverlay');
@@ -672,6 +795,16 @@ window.__vidaa = {
     if(!k && /^[0-9]$/.test(e.key || '')) k = 48 + Number(e.key);
     dbg('key=' + k + ' name=' + (e.key || '-') + ' fs=' + inFullscreen() + ' overlay=' + (overlay ? overlay.classList.contains('show') : 'none'));
 
+    if(pickerOpen){
+      e.preventDefault(); e.stopImmediatePropagation();
+      if(k === 50 || k === 38){ pickIdx--; paintPicker(); }
+      else if(k === 56 || k === 40){ pickIdx++; paintPicker(); }
+      else if(k === 53 || k === 13){ pickerChoose(); }
+      else if(k === 55 || k === 27 || k === 8 || k === 10009 || k === 461){ closePicker(); }
+      return;
+    }
+    if(k === 55){ e.preventDefault(); e.stopImmediatePropagation(); openPicker(); return; }
+
     if(k === 50){
       e.preventDefault(); e.stopImmediatePropagation();
       if(inFullscreen()) move(-1);
@@ -701,6 +834,88 @@ window.__vidaa = {
     }
   }, true);
 
+
+  // ---- Playlist picker: key 7 opens, 2/8 (or up/down) select, 5 (or OK/Enter) load, 7/Back close ----
+  let pickerEl = null, pickerList = null, pickerOpen = false, pickIdx = 0;
+
+  function buildPicker(){
+    if(pickerEl) return;
+    pickerEl = document.createElement('div');
+    pickerEl.style.cssText = 'display:none;position:absolute;left:50%;top:8%;margin-left:-220px;width:440px;' +
+      'z-index:100002;background:rgba(3,20,24,.98);border:2px solid #2ee6c9;border-radius:10px;' +
+      'padding:14px 12px 10px;box-sizing:border-box;color:#e6f7ff;font-family:Arial,Helvetica,sans-serif';
+
+    const title = document.createElement('div');
+    title.textContent = 'Плейлисты';
+    title.style.cssText = 'font-size:22px;font-weight:700;padding:2px 10px 10px';
+
+    pickerList = document.createElement('ul');
+    pickerList.style.cssText = 'list-style:none;margin:0;padding:0;max-height:50vh;overflow:hidden;position:relative';
+
+    const hint = document.createElement('div');
+    hint.textContent = '2 / 8 — выбор   5 — ок   7 — закрыть';
+    hint.style.cssText = 'margin-top:8px;padding:6px 10px;font-size:13px;color:#b9f0e8';
+
+    pickerEl.appendChild(title);
+    pickerEl.appendChild(pickerList);
+    pickerEl.appendChild(hint);
+    playerSection.appendChild(pickerEl);
+  }
+
+  function fillPicker(){
+    pickerList.innerHTML = '';
+    playlists.forEach(function(p, i){
+      const li = document.createElement('li');
+      li.textContent = (i === playlistIndex ? '● ' : '') + p.name;
+      li.style.cssText = 'height:48px;padding:9px 14px;box-sizing:border-box;' +
+        'border-bottom:1px solid rgba(255,255,255,.07);font-size:18px;line-height:30px;' +
+        'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer';
+      li.onclick = function(e){ e.stopPropagation(); pickIdx = i; pickerChoose(); };
+      pickerList.appendChild(li);
+    });
+  }
+
+  function paintPicker(){
+    const items = pickerList.children;
+    if(!items.length) return;
+    if(pickIdx < 0) pickIdx = items.length - 1;
+    if(pickIdx >= items.length) pickIdx = 0;
+    for(let i = 0; i < items.length; i++){
+      const sel = i === pickIdx;
+      items[i].style.outline = sel ? '3px solid #2ee6c9' : 'none';
+      items[i].style.outlineOffset = '-3px';
+      items[i].style.background = sel ? 'rgba(46,230,201,.22)' : 'transparent';
+    }
+    const s = items[pickIdx];
+    const top = s.offsetTop, bottom = top + s.offsetHeight;
+    if(top < pickerList.scrollTop) pickerList.scrollTop = top;
+    else if(bottom > pickerList.scrollTop + pickerList.clientHeight) pickerList.scrollTop = bottom - pickerList.clientHeight;
+  }
+
+  function openPicker(){
+    if(!playlists.length) return;
+    hideOverlay();
+    buildPicker();
+    fillPicker();
+    pickIdx = Math.max(0, playlistIndex);
+    pickerEl.style.display = 'block';
+    pickerOpen = true;
+    paintPicker();
+  }
+
+  function closePicker(){
+    if(pickerEl) pickerEl.style.display = 'none';
+    pickerOpen = false;
+  }
+
+  function pickerChoose(){
+    const idx = pickIdx;
+    closePicker();
+    if(idx !== playlistIndex) selectPlaylist(idx);
+  }
+
+  window.__openPlaylistPicker = openPicker;
+
   // Keys that cycle subtitles. 460 = standard HbbTV/OIPF VK_SUBTITLE code,
   const SUBTITLE_KEYCODES = [460];
   const SUBTITLE_KEYNAMES = ['Subtitle', 'Subtitles', 'ClosedCaption', 'Captions', 'MediaTrackSubtitle'];
@@ -722,6 +937,7 @@ window.__vidaa = {
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function(){ toastEl.style.display = 'none'; }, 2200);
   }
+  window.__toast = toast;
 
   function nativeTracks(){
     const all = video && video.textTracks ? Array.from(video.textTracks) : [];
