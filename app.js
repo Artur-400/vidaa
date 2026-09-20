@@ -1,4 +1,4 @@
-// VIDAA IPTV v0.3.15
+// VIDAA IPTV v0.3.16
 // Основа сохранена максимально близко к рабочей версии пользователя.
 
 const player = document.getElementById('player');
@@ -296,7 +296,7 @@ function playStream(url) {
   player.removeAttribute('src');
   player.load();
 
-  if (player.canPlayType('application/vnd.apple.mpegurl')) {
+  if (!window.__forceHls && player.canPlayType('application/vnd.apple.mpegurl')) {
     player.src = url;
     player.play().catch(() => {});
   } else if (window.Hls && Hls.isSupported()) {
@@ -322,6 +322,10 @@ function playStream(url) {
             break;
           case Hls.ErrorTypes.MEDIA_ERROR:
             hls.recoverMediaError();
+            break;
+          default:
+            // hls.js was only forced for subtitles: if it cannot play this stream, go back to the native player
+            if (window.__forceHls) { window.__forceHls = false; playStream(url); }
             break;
         }
       }
@@ -514,7 +518,7 @@ window.__vidaa = {
 
 
 
-/* VIDAA IPTV v0.3.15 — stable fullscreen channel picker for Hisense/VIDAA */
+/* VIDAA IPTV v0.3.16 — stable fullscreen channel picker for Hisense/VIDAA */
 (function(){
   const playerSection = document.getElementById('playerSection');
   const overlay = document.getElementById('fullscreenChannelOverlay');
@@ -745,6 +749,15 @@ window.__vidaa = {
   }
 
   window.__cycleSubtitles = function(){
+    // Native (built-in) HLS playback on this TV gives an empty subtitle track without any cues.
+    // Restart the current channel through hls.js, which reads WebVTT subtitles itself.
+    if(!hls && window.Hls && Hls.isSupported() && typeof currentIndex === 'number' && channels[currentIndex]){
+      window.__forceHls = true;
+      pendingSub = true;
+      toast('Субтитры: перезапуск потока…');
+      playStream(channels[currentIndex].url);
+      return null;
+    }
     const entries = subtitleEntries();
     if(!entries.length){ subIdx = -1; toast('Субтитров в этом канале нет'); updateSubButton(); return null; }
 
@@ -805,11 +818,22 @@ window.__vidaa = {
   }
 
   // ---- hls.js diagnostics for subtitles (shown in the debug line) ----
+  let pendingSub = false;
   const diag = { sw: 0, pl: 0, pfr: '-', live: '-', fl: 0, proc: 0, cp: 0, err: '' };
   window.__onHlsCreated = function(h){
     diag.sw = 0; diag.pl = 0; diag.pfr = '-'; diag.live = '-'; diag.fl = 0; diag.proc = 0; diag.cp = 0; diag.err = '';
     const E = (window.Hls && Hls.Events) || {};
     function on(name, fn){ if(E[name]) h.on(E[name], fn); }
+    on('MANIFEST_PARSED', function(){
+      if(!pendingSub) return;
+      pendingSub = false;
+      let tries = 0;
+      (function wait(){
+        if(hls !== h) return;                       // channel changed meanwhile
+        if((h.subtitleTracks && h.subtitleTracks.length) || ++tries > 15) window.__cycleSubtitles();
+        else setTimeout(wait, 300);
+      })();
+    });
     on('SUBTITLE_TRACK_SWITCH', function(){ diag.sw++; });
     on('SUBTITLE_TRACK_LOADED', function(ev, d){
       diag.pl++;
@@ -827,7 +851,7 @@ window.__vidaa = {
     });
   };
   function diagText(){
-    return 'hls: sw=' + diag.sw + ' pl=' + diag.pl + ' frags=' + diag.pfr + ' ' + diag.live +
+    return (hls ? 'hls.js' : 'native') + ': sw=' + diag.sw + ' pl=' + diag.pl + ' frags=' + diag.pfr + ' ' + diag.live +
            ' loaded=' + diag.fl + ' proc=' + diag.proc + (diag.err ? ' ERR=' + diag.err : '');
   }
 
