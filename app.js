@@ -1,4 +1,4 @@
-// VIDAA IPTV v0.3.13
+// VIDAA IPTV v0.3.14
 // Основа сохранена максимально близко к рабочей версии пользователя.
 
 const player = document.getElementById('player');
@@ -513,7 +513,7 @@ window.__vidaa = {
 
 
 
-/* VIDAA IPTV v0.3.13 — stable fullscreen channel picker for Hisense/VIDAA */
+/* VIDAA IPTV v0.3.14 — stable fullscreen channel picker for Hisense/VIDAA */
 (function(){
   const playerSection = document.getElementById('playerSection');
   const overlay = document.getElementById('fullscreenChannelOverlay');
@@ -531,17 +531,20 @@ window.__vidaa = {
   // Temporary on-screen key debug (shows keyCode / fullscreen state on the TV).
   // Set to false once everything works.
   const DEBUG_KEYS = true;
-  let dbgEl = null;
-  function dbg(text){
+  let dbgEl = null, dbgKeyText = '', dbgSubText = '';
+  function dbgRefresh(){
     if(!DEBUG_KEYS) return;
     if(!dbgEl){
       dbgEl = document.createElement('div');
-      dbgEl.style.cssText = 'position:absolute;right:8px;top:8px;z-index:100001;' +
+      dbgEl.style.cssText = 'position:absolute;right:8px;top:8px;max-width:70%;z-index:100001;' +
         'padding:4px 10px;background:rgba(0,0,0,.75);color:#2ee6c9;font:16px monospace;pointer-events:none';
       playerSection.appendChild(dbgEl);
     }
-    dbgEl.textContent = text;
+    dbgEl.textContent = dbgKeyText + (dbgSubText ? '\n' + dbgSubText : '');
+    dbgEl.style.whiteSpace = 'pre-wrap';
   }
+  function dbg(text){ dbgKeyText = text; dbgRefresh(); }
+  function dbgSub(text){ dbgSubText = text; dbgRefresh(); }
 
   function getIndices(){
     const list = Array.isArray(visibleChannels) && visibleChannels.length ? visibleChannels : channels;
@@ -726,7 +729,7 @@ window.__vidaa = {
     const list = [];
     if(hls && hls.subtitleTracks && hls.subtitleTracks.length){
       hls.subtitleTracks.forEach(function(t, i){
-        list.push({ hlsIndex: i, name: t.name || t.lang || ('#' + (i + 1)) });
+        list.push({ hlsIndex: i, name: t.name || t.lang || ('#' + (i + 1)), label: t.name, lang: t.lang });
       });
       // CEA-608/708 captions embedded in the video are exposed as native "captions" tracks
       nativeTracks().filter(function(t){ return t.kind === 'captions'; }).forEach(function(t, i){
@@ -753,24 +756,105 @@ window.__vidaa = {
 
     if(subIdx >= 0){
       const en = entries[subIdx];
+      subActiveEntry = en;
       try {
-        if(en.track) en.track.mode = 'showing';
-        else if(hls){ hls.subtitleDisplay = true; hls.subtitleTrack = en.hlsIndex; }
+        if(en.track) en.track.mode = 'hidden';
+        // subtitleDisplay=false -> track is selected/loaded but kept 'hidden' (we render the text ourselves)
+        else if(hls){ hls.subtitleDisplay = false; hls.subtitleTrack = en.hlsIndex; }
       } catch(_) {}
       toast('Субтитры: ' + en.name);
+      startSubRender();
     } else {
+      subActiveEntry = null;
+      stopSubRender();
       toast('Субтитры: выкл');
     }
     updateSubButton();
     return subIdx >= 0;
   };
 
+  // ---- Own subtitle renderer: reads cues of the selected track and draws them in a div ----
+  let subActiveEntry = null, subTimer = null, subBox = null, subSpan = null;
+
+  function ensureSubBox(){
+    if(subBox) return;
+    subBox = document.createElement('div');
+    subBox.style.cssText = 'position:absolute;left:8%;right:8%;bottom:9%;text-align:center;z-index:5;' +
+      'pointer-events:none;display:none';
+    subSpan = document.createElement('span');
+    subSpan.style.cssText = 'display:inline-block;max-width:100%;padding:4px 14px;background:rgba(0,0,0,.65);' +
+      'color:#fff;font:600 34px/1.3 Arial,Helvetica,sans-serif;white-space:pre-line;' +
+      'text-shadow:0 0 4px #000,0 0 4px #000;border-radius:4px';
+    subBox.appendChild(subSpan);
+    playerSection.appendChild(subBox);
+  }
+
+  function cleanCue(text){
+    return String(text || '').replace(/<[^>]*>/g, '')
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').trim();
+  }
+
+  function findNativeFor(en){
+    if(!en) return null;
+    if(en.track) return en.track;
+    const subs = nativeTracks().filter(function(t){ return t.kind === 'subtitles'; });
+    for(let i = 0; i < subs.length; i++){
+      const t = subs[i];
+      if((en.label && t.label === en.label) || (en.lang && t.language === en.lang)) return t;
+    }
+    return null;
+  }
+
+  function renderSubs(){
+    if(subIdx < 0 || !subActiveEntry){ stopSubRender(); return; }
+    const tr = findNativeFor(subActiveEntry);
+    if(!tr){
+      subBox.style.display = 'none';
+      dbgSub('sub: track "' + subActiveEntry.name + '" not created yet (native tracks: ' + nativeTracks().length + ')');
+      return;
+    }
+    // Keep the native renderer out of the way (no double text)
+    if(tr.mode !== 'hidden'){ try { tr.mode = 'hidden'; } catch(_) {} }
+
+    const cues = tr.cues;
+    const n = cues ? cues.length : 0;
+    const t = video.currentTime;
+    const lines = [];
+    for(let i = 0; i < n; i++){
+      const c = cues[i];
+      if(c.startTime <= t && t < c.endTime){
+        const s = cleanCue(c.text);
+        if(s) lines.push(s);
+      }
+    }
+    if(lines.length){
+      subSpan.textContent = lines.join('\n');
+      subBox.style.display = 'block';
+    } else {
+      subBox.style.display = 'none';
+    }
+    dbgSub('sub: ' + subActiveEntry.name + ' cues=' + n + ' t=' + t.toFixed(1) + ' shown=' + lines.length);
+  }
+
+  function startSubRender(){
+    stopSubRender();
+    ensureSubBox();
+    subTimer = setInterval(renderSubs, 200);
+    renderSubs();
+  }
+
+  function stopSubRender(){
+    if(subTimer){ clearInterval(subTimer); subTimer = null; }
+    if(subBox) subBox.style.display = 'none';
+    dbgSub('');
+  }
+
   function updateSubButton(){
     if(subButton) subButton.textContent = subIdx >= 0 ? 'SUB ✓' : 'SUB';
   }
 
   // New channel -> new stream -> subtitles start off again
-  if(video) video.addEventListener('emptied', function(){ subIdx = -1; updateSubButton(); });
+  if(video) video.addEventListener('emptied', function(){ subIdx = -1; subActiveEntry = null; stopSubRender(); updateSubButton(); });
 
   if(subButton) subButton.addEventListener('click', function(e){
     e.stopPropagation();
