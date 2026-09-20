@@ -48,3 +48,142 @@ body.tv-video-fullscreen .video-wrap{
 body.tv-video-fullscreen video{
   width:100vw; height:100vh; object-fit:contain;
 }
+
+
+/* v0.3.0: fullscreen channel overlay */
+#fullscreenChannelOverlay{
+  display:none;
+  position:fixed;
+  inset:0;
+  z-index:100000;
+  pointer-events:none;
+}
+
+#fullscreenChannelOverlay.show{
+  display:block;
+}
+
+.fs-overlay-panel{
+  position:absolute;
+  left:0;
+  top:0;
+  bottom:0;
+  width:390px;
+  max-width:42vw;
+  background:rgba(3,20,24,.96);
+  border-right:2px solid rgba(46,230,201,.55);
+  box-shadow:8px 0 28px rgba(0,0,0,.55);
+  padding:18px 12px;
+  pointer-events:auto;
+  overflow:hidden;
+}
+
+.fs-overlay-title{
+  color:#e6f7ff;
+  font-size:22px;
+  font-weight:700;
+  padding:4px 10px 12px;
+}
+
+#fullscreenChannelList{
+  list-style:none;
+  padding:0;
+  margin:0;
+  height:calc(100vh - 105px);
+  overflow:hidden;
+}
+
+#fullscreenChannelList li{
+  padding:12px 14px;
+  border-bottom:1px solid rgba(255,255,255,.07);
+  color:#e6f7ff;
+  font-size:18px;
+  border-radius:5px;
+}
+
+#fullscreenChannelList li.fs-selected{
+  outline:3px solid #2ee6c9;
+  background:rgba(46,230,201,.16);
+}
+
+#fullscreenChannelList li.fs-playing{
+  background:rgba(46,230,201,.25);
+}
+
+.fs-overlay-hint{
+  position:absolute;
+  left:12px;
+  right:12px;
+  bottom:12px;
+  padding:9px 10px;
+  background:rgba(0,0,0,.55);
+  color:#b9f0e8;
+  font-size:13px;
+  border-radius:5px;
+}
+
+/* Fullscreen the player section, not the video, so the overlay remains available. */
+#playerSection:fullscreen{
+  position:fixed;
+  inset:0;
+  width:100vw;
+  height:100vh;
+  padding:0;
+  background:#000;
+}
+
+#playerSection:fullscreen .video-wrap{
+  width:100%;
+  height:100%;
+  border-radius:0;
+}
+
+#playerSection:fullscreen video{
+  width:100%;
+  height:100%;
+  object-fit:contain;
+}
+
+body.tv-video-fullscreen #fullscreenChannelOverlay{
+  display:none;
+}
+
+body.tv-video-fullscreen #app header,
+body.tv-video-fullscreen #app footer,
+body.tv-video-fullscreen #sidebar,
+body.tv-video-fullscreen #now{
+  display:none;
+}
+
+body.tv-video-fullscreen #playerSection{
+  position:fixed;
+  inset:0;
+  z-index:99999;
+  padding:0;
+  background:#000;
+}
+
+body.tv-video-fullscreen .video-wrap{
+  width:100vw;
+  height:100vh;
+  border-radius:0;
+}
+
+body.tv-video-fullscreen video{
+  width:100vw;
+  height:100vh;
+  object-fit:contain;
+}
+
+/* v0.3.1 subtitle button */
+#btn-subtitle{
+  background:#0b5260;
+  color:#fff;
+  border:0;
+  padding:8px 10px;
+  border-radius:8px;
+  cursor:pointer;
+  font-size:14px;
+  font-weight:700;
+}
+#btn-subtitle:active{transform:translateY(1px)}
