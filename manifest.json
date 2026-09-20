@@ -1,0 +1,8 @@
+{
+  "name": "VIDAA IPTV",
+  "short_name": "IPTV",
+  "start_url": "./index.html",
+  "display": "fullscreen",
+  "background_color": "#071013",
+  "theme_color": "#042431"
+}

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <link rel="manifest" href="manifest.json">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>VIDAA IPTV — v0.2.1</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="brand">
+        <img src="logo.svg" alt="logo" class="logo">
+        <h1>VIDAA IPTV</h1>
+      </div>
+      <div class="controls" id="controls">
+        <button id="btn-prev" title="Предыдущий канал">◀</button>
+        <button id="btn-play" title="Play / Pause">⏯</button>
+        <button id="btn-next" title="Следующий канал">▶</button>
+        <div class="vol">🔊 <span id="vol-label">100%</span></div>
+      </div>
+    </header>
+
+    <main>
+      <aside id="sidebar">
+        <div class="playlist-header">Плейлист</div>
+        <div id="groups"></div>
+        <div class="channel-list-container">
+          <ul id="channelList" tabindex="0"></ul>
+        </div>
+      </aside>
+
+      <section id="playerSection">
+        <div class="video-wrap">
+          <video id="player" playsinline></video>
+          <div id="videoMessage">Канал не выбран</div>
+        </div>
+        <div id="now">
+          <div id="now-title"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <small>↑↓ — выбор канала · Enter — воспроизвести · ←→ — группы · Space — пауза · +/- — громкость · Backspace/Esc — остановить</small>
+    </footer>
+  </div>
+
+<script>
+const M3U_URL = "https://raw.githubusercontent.com/Artur-400/TVIP/refs/heads/main/DE_My.m3u";
+</script>
+<script src="app.js"></script>
+</body>
+</html>
