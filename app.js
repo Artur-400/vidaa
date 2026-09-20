@@ -1,4 +1,4 @@
-// VIDAA IPTV v0.3.14
+// VIDAA IPTV v0.3.15
 // Основа сохранена максимально близко к рабочей версии пользователя.
 
 const player = document.getElementById('player');
@@ -305,6 +305,7 @@ function playStream(url) {
       lowLatencyMode: false
     });
 
+    if (window.__onHlsCreated) { try { window.__onHlsCreated(hls); } catch (_) {} }
     hls.loadSource(url);
     hls.attachMedia(player);
 
@@ -513,7 +514,7 @@ window.__vidaa = {
 
 
 
-/* VIDAA IPTV v0.3.14 — stable fullscreen channel picker for Hisense/VIDAA */
+/* VIDAA IPTV v0.3.15 — stable fullscreen channel picker for Hisense/VIDAA */
 (function(){
   const playerSection = document.getElementById('playerSection');
   const overlay = document.getElementById('fullscreenChannelOverlay');
@@ -795,45 +796,77 @@ window.__vidaa = {
   }
 
   function findNativeFor(en){
-    if(!en) return null;
-    if(en.track) return en.track;
-    const subs = nativeTracks().filter(function(t){ return t.kind === 'subtitles'; });
-    for(let i = 0; i < subs.length; i++){
-      const t = subs[i];
-      if((en.label && t.label === en.label) || (en.lang && t.language === en.lang)) return t;
-    }
-    return null;
+    if(!en) return [];
+    if(en.track) return [en.track];
+    return nativeTracks().filter(function(t){
+      return t.kind === 'subtitles' &&
+        ((en.label && t.label === en.label) || (en.lang && t.language === en.lang));
+    });
+  }
+
+  // ---- hls.js diagnostics for subtitles (shown in the debug line) ----
+  const diag = { sw: 0, pl: 0, pfr: '-', live: '-', fl: 0, proc: 0, cp: 0, err: '' };
+  window.__onHlsCreated = function(h){
+    diag.sw = 0; diag.pl = 0; diag.pfr = '-'; diag.live = '-'; diag.fl = 0; diag.proc = 0; diag.cp = 0; diag.err = '';
+    const E = (window.Hls && Hls.Events) || {};
+    function on(name, fn){ if(E[name]) h.on(E[name], fn); }
+    on('SUBTITLE_TRACK_SWITCH', function(){ diag.sw++; });
+    on('SUBTITLE_TRACK_LOADED', function(ev, d){
+      diag.pl++;
+      diag.pfr = d && d.details && d.details.fragments ? d.details.fragments.length : '?';
+      diag.live = d && d.details ? (d.details.live ? 'live' : 'vod') : '?';
+    });
+    on('FRAG_LOADED', function(ev, d){ if(d && d.frag && d.frag.type === 'subtitle') diag.fl++; });
+    on('SUBTITLE_FRAG_PROCESSED', function(){ diag.proc++; });
+    on('CUES_PARSED', function(){ diag.cp++; });
+    on('ERROR', function(ev, d){
+      if(!d) return;
+      const isSub = (d.frag && d.frag.type === 'subtitle') || /subtitle/i.test(d.details || '') ||
+                    (d.context && d.context.type === 'subtitleTrack');
+      if(isSub) diag.err = (d.details || d.type || '?') + (d.response && d.response.code ? ' ' + d.response.code : '');
+    });
+  };
+  function diagText(){
+    return 'hls: sw=' + diag.sw + ' pl=' + diag.pl + ' frags=' + diag.pfr + ' ' + diag.live +
+           ' loaded=' + diag.fl + ' proc=' + diag.proc + (diag.err ? ' ERR=' + diag.err : '');
   }
 
   function renderSubs(){
     if(subIdx < 0 || !subActiveEntry){ stopSubRender(); return; }
-    const tr = findNativeFor(subActiveEntry);
-    if(!tr){
+    const trs = findNativeFor(subActiveEntry);
+    if(!trs.length){
       subBox.style.display = 'none';
-      dbgSub('sub: track "' + subActiveEntry.name + '" not created yet (native tracks: ' + nativeTracks().length + ')');
+      dbgSub('sub: track "' + subActiveEntry.name + '" not created yet (native tracks: ' + nativeTracks().length + ')\n' + diagText());
       return;
     }
-    // Keep the native renderer out of the way (no double text)
-    if(tr.mode !== 'hidden'){ try { tr.mode = 'hidden'; } catch(_) {} }
-
-    const cues = tr.cues;
-    const n = cues ? cues.length : 0;
+    // If hls.js has not activated any of them, activate the newest one (hidden = cues load, no native drawing)
+    if(trs.every(function(t){ return t.mode === 'disabled'; })){
+      try { trs[trs.length - 1].mode = 'hidden'; } catch(_) {}
+    }
     const t = video.currentTime;
     const lines = [];
-    for(let i = 0; i < n; i++){
-      const c = cues[i];
-      if(c.startTime <= t && t < c.endTime){
-        const s = cleanCue(c.text);
-        if(s) lines.push(s);
+    let total = 0;
+    trs.forEach(function(tr){
+      if(tr.mode === 'showing'){ try { tr.mode = 'hidden'; } catch(_) {} }   // no double text
+      const cues = tr.cues;
+      if(!cues) return;
+      total += cues.length;
+      for(let i = 0; i < cues.length; i++){
+        const c = cues[i];
+        if(c.startTime <= t && t < c.endTime){
+          const s = cleanCue(c.text);
+          if(s && lines.indexOf(s) < 0) lines.push(s);
+        }
       }
-    }
+    });
     if(lines.length){
       subSpan.textContent = lines.join('\n');
       subBox.style.display = 'block';
     } else {
       subBox.style.display = 'none';
     }
-    dbgSub('sub: ' + subActiveEntry.name + ' cues=' + n + ' t=' + t.toFixed(1) + ' shown=' + lines.length);
+    dbgSub('sub: ' + subActiveEntry.name + ' tracks=' + trs.length + ' cues=' + total +
+           ' t=' + t.toFixed(0) + ' shown=' + lines.length + '\n' + diagText());
   }
 
   function startSubRender(){
