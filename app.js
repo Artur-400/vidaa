@@ -512,34 +512,39 @@ window.__vidaa = {
 };
 
 
-
-/* --- VIDAA IPTV v0.2.5: exact numeric key diagnostic --- */
+/* VIDAA IPTV v0.2.6 — confirmed numeric remote control */
 (function(){
-  if(new URLSearchParams(location.search).get('keys')!=='1') return;
+  let remoteFocus = 0;
 
-  const box=document.createElement('div');
-  Object.assign(box.style,{
-    position:'fixed',left:'10px',top:'10px',zIndex:'1000000',
-    width:'520px',padding:'14px',background:'rgba(0,0,0,.94)',
-    color:'#00ffe0',border:'2px solid #00ffe0',borderRadius:'8px',
-    font:'bold 18px/1.5 monospace',whiteSpace:'pre-wrap',
-    pointerEvents:'none'
-  });
-  document.body.appendChild(box);
-
-  const log=[];
-  function add(e){
-    log.unshift(
-      `key=${JSON.stringify(e.key)}  code=${JSON.stringify(e.code)}\n`+
-      `keyCode=${e.keyCode}  which=${e.which}  charCode=${e.charCode}`
-    );
-    while(log.length>5) log.pop();
-    box.textContent='VIDAA v0.2.5 — KEY TEST\n\n'+log.join('\n\n');
+  function items(){
+    return Array.from(channelListEl.querySelectorAll('li'));
   }
 
-  window.addEventListener('keydown',e=>{
-    add(e);
-  },true);
+  function move(delta){
+    const list = items();
+    if (!list.length) return;
+    remoteFocus = Math.max(0, Math.min(remoteFocus + delta, list.length - 1));
+    list.forEach((li,i)=>{
+      li.style.outline = i === remoteFocus ? '3px solid #ff00ff' : '';
+      li.style.background = i === remoteFocus ? 'rgba(255,0,255,.12)' : '';
+    });
+    list[remoteFocus].scrollIntoView({block:'center'});
+  }
 
-  box.textContent='VIDAA v0.2.5 — KEY TEST\n\nНажми по очереди: 2 4 5 6 8';
+  function play(){
+    const list = items();
+    if (!list.length) return;
+    const li = list[Math.max(0, Math.min(remoteFocus, list.length-1))];
+    li.click();
+  }
+
+  window.addEventListener('keydown', function(e){
+    switch(e.keyCode){
+      case 50: e.preventDefault(); e.stopPropagation(); move(-1); break; // 2
+      case 56: e.preventDefault(); e.stopPropagation(); move(1); break;  // 8
+      case 52: e.preventDefault(); e.stopPropagation(); changeIndex((currentIndex===null?0:currentIndex)-1); break; // 4
+      case 54: e.preventDefault(); e.stopPropagation(); changeIndex((currentIndex===null?0:currentIndex)+1); break; // 6
+      case 53: e.preventDefault(); e.stopPropagation(); play(); break; // 5
+    }
+  }, true);
 })();
