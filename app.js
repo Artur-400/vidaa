@@ -1,5 +1,4 @@
-// VIDAA IPTV v0.3.19
-// Основа сохранена максимально близко к рабочей версии пользователя.
+// VIDAA IPTV v0.3.20
 
 const player = document.getElementById('player');
 const channelListEl = document.getElementById('channelList');
@@ -22,10 +21,15 @@ let hls = null;
 const STORAGE_KEY = 'vidaa_iptv_last';
 const PLAYLIST_KEY = 'vidaa_iptv_playlist';
 
+// localStorage can throw (disabled / quota) - never let that break the app
+function lsGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (_) {} }
+
 // Playlists (loaded from playlists.json, see initPlaylists)
 let playlists = [];
 let playlistIndex = -1;
 let loadSeq = 0;
+let loadedUrl = '';   // url of the playlist whose channels are currently shown
 const playlistHeaderEl = document.getElementById('playlistHeader');
 
 function currentPlaylistUrl() {
@@ -33,14 +37,14 @@ function currentPlaylistUrl() {
   return p ? p.url : (typeof M3U_URL !== 'undefined' ? M3U_URL : '');
 }
 // last watched channel is remembered separately for every playlist
-function lastKey() { return STORAGE_KEY + '|' + currentPlaylistUrl(); }
+function lastKey() { return STORAGE_KEY + '|' + (loadedUrl || currentPlaylistUrl()); }
 const VOLUME_KEY = 'vidaa_vol';
 
 function setVolume(v) {
   v = Math.max(0, Math.min(1, v));
   player.volume = v;
   if (volLabel) volLabel.textContent = Math.round(v * 100) + '%';
-  localStorage.setItem(VOLUME_KEY, String(v));
+  lsSet(VOLUME_KEY, String(v));
 }
 
 function togglePlay() {
@@ -62,7 +66,7 @@ function parseAttribute(line, name) {
 function parseExtInf(line) {
   // Более терпимый разбор: даже одна битая кавычка в соседнем атрибуте
   // не ломает весь плейлист.
-  const comma = line.indexOf(',');
+  const comma = line.indexOf(',', line.lastIndexOf('"') + 1);
   const title = comma >= 0
     ? line.slice(comma + 1).trim()
     : 'Без названия';
@@ -108,6 +112,8 @@ function extractM3U(text) {
     }
   }
 
+  outChannels.forEach((c, i) => { c._i = i; });
+
   // Порядок плейлиста сохраняем — так номера каналов не прыгают.
   return { channels: outChannels, groups: outGroups };
 }
@@ -151,7 +157,7 @@ function renderChannels(filterGroup = 'Все') {
   channelListEl.innerHTML = '';
 
   visibleChannels.forEach((ch, visibleIndex) => {
-    const globalIndex = channels.indexOf(ch);
+    const globalIndex = ch._i;
 
     const li = document.createElement('li');
     li.tabIndex = 0;
@@ -159,6 +165,7 @@ function renderChannels(filterGroup = 'Все') {
     li.dataset.globalIndex = String(globalIndex);
 
     const img = document.createElement('img');
+    img.loading = 'lazy';
     if (ch.logo) {
       img.src = ch.logo;
       img.onerror = () => {
@@ -231,8 +238,8 @@ function playVisibleIndex(index) {
   focusedVisibleIndex = index;
 
   const ch = visibleChannels[index];
-  const globalIndex = channels.indexOf(ch);
-  if (globalIndex < 0) return;
+  const globalIndex = ch._i;
+  if (!(globalIndex >= 0)) return;
 
   playByIndex(globalIndex);
 }
@@ -276,12 +283,13 @@ function playByIndex(idx) {
   }
 
   updateFocus();
+  window.__forceHls = false;   // hls.js is forced only by the SUB button restart
   playStream(ch.url);
 
   nowTitle.textContent = ch.title + (ch.group ? ' — ' + ch.group : '');
   videoMessage.style.display = 'none';
 
-  localStorage.setItem(lastKey(), JSON.stringify({
+  lsSet(lastKey(), JSON.stringify({
     index: idx,
     url: ch.url,
     title: ch.title,
@@ -301,8 +309,18 @@ function stopPlayback() {
     player.load();
   } catch (_) {}
 
+  currentIndex = null;
+  updateFocus();
   nowTitle.textContent = '';
   videoMessage.textContent = 'Канал не выбран';
+  videoMessage.style.display = 'flex';
+}
+
+function showPlayError(url) {
+  const mixed = location.protocol === 'https:' && /^http:\/\//i.test(url || '');
+  videoMessage.textContent = mixed
+    ? 'Ошибка: http-поток заблокирован на https-странице'
+    : 'Ошибка воспроизведения';
   videoMessage.style.display = 'flex';
 }
 
@@ -321,34 +339,42 @@ function playStream(url) {
     player.src = url;
     player.play().catch(() => {});
   } else if (window.Hls && Hls.isSupported()) {
-    hls = new Hls({
+    const h = new Hls({
       enableWorker: true,
       lowLatencyMode: false
     });
+    hls = h;
+    let netRetries = 0;
+    let mediaRetries = 0;
 
-    if (window.__onHlsCreated) { try { window.__onHlsCreated(hls); } catch (_) {} }
-    hls.loadSource(url);
-    hls.attachMedia(player);
+    if (window.__onHlsCreated) { try { window.__onHlsCreated(h); } catch (_) {} }
+    h.loadSource(url);
+    h.attachMedia(player);
 
-    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+    h.on(Hls.Events.MANIFEST_PARSED, () => {
       player.play().catch(() => {});
     });
 
-    hls.on(Hls.Events.ERROR, (event, data) => {
+    // stream is alive again -> reset retry budget
+    h.on(Hls.Events.FRAG_LOADED, () => { netRetries = 0; mediaRetries = 0; });
+
+    h.on(Hls.Events.ERROR, (event, data) => {
+      if (hls !== h) return;                    // stale instance (channel already changed)
       console.warn('HLS error:', data);
-      if (data && data.fatal) {
-        switch (data.type) {
-          case Hls.ErrorTypes.NETWORK_ERROR:
-            hls.startLoad();
-            break;
-          case Hls.ErrorTypes.MEDIA_ERROR:
-            hls.recoverMediaError();
-            break;
-          default:
-            // hls.js was only forced for subtitles: if it cannot play this stream, go back to the native player
-            if (window.__forceHls) { window.__forceHls = false; playStream(url); }
-            break;
-        }
+      if (!data || !data.fatal) return;
+
+      const giveUp = () => {
+        // hls.js was only forced for subtitles: if it cannot play this stream, go back to the native player
+        if (window.__forceHls) { window.__forceHls = false; playStream(url); }
+        else showPlayError(url);
+      };
+
+      if (data.type === Hls.ErrorTypes.NETWORK_ERROR && ++netRetries <= 3) {
+        setTimeout(() => { if (hls === h) h.startLoad(); }, 1000 * netRetries);
+      } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && ++mediaRetries <= 3) {
+        h.recoverMediaError();
+      } else {
+        giveUp();
       }
     });
   } else {
@@ -393,6 +419,7 @@ async function loadM3U(url, opts) {
 
   if (seq !== loadSeq) return null;
 
+  loadedUrl = url;
   if (opts.stopFirst) stopPlayback();
 
   channels = parsed.channels;
@@ -617,13 +644,10 @@ player.addEventListener('waiting', () => {
 });
 
 player.addEventListener('error', () => {
-  if (currentIndex !== null) {
-    videoMessage.textContent = 'Ошибка воспроизведения';
-    videoMessage.style.display = 'flex';
-  }
+  if (currentIndex !== null && channels[currentIndex]) showPlayError(channels[currentIndex].url);
 });
 
-const savedVol = parseFloat(localStorage.getItem(VOLUME_KEY) || '1');
+const savedVol = parseFloat(lsGet(VOLUME_KEY) || '1');
 setVolume(Number.isFinite(savedVol) ? savedVol : 1);
 
 initPlaylists();
@@ -641,7 +665,7 @@ window.__vidaa = {
 
 
 
-/* VIDAA IPTV v0.3.19 — stable fullscreen channel picker for Hisense/VIDAA */
+/* VIDAA IPTV v0.3.20 — stable fullscreen channel picker for Hisense/VIDAA */
 (function(){
   const playerSection = document.getElementById('playerSection');
   const overlay = document.getElementById('fullscreenChannelOverlay');
@@ -658,7 +682,7 @@ window.__vidaa = {
 
   // Temporary on-screen key debug (shows keyCode / fullscreen state on the TV).
   // Set to false once everything works.
-  const DEBUG_KEYS = true;
+  const DEBUG_KEYS = false;
   let dbgEl = null, dbgKeyText = '', dbgSubText = '';
   function dbgRefresh(){
     if(!DEBUG_KEYS) return;
@@ -676,7 +700,7 @@ window.__vidaa = {
 
   function getIndices(){
     const list = Array.isArray(visibleChannels) && visibleChannels.length ? visibleChannels : channels;
-    return list.map(ch => channels.indexOf(ch)).filter(i => i >= 0);
+    return list.map(ch => ch._i).filter(i => Number.isInteger(i) && i >= 0);
   }
 
   function paint(){
@@ -748,32 +772,44 @@ window.__vidaa = {
     hideOverlay();
   }
 
-  function previousChannel(){
-    if(!channels.length) return;
-    let i = (typeof currentIndex === 'number' ? currentIndex : 0) - 1;
-    if(i < 0) i = channels.length - 1;
-    playByIndex(i);
+  // 4 / 6: previous / next channel inside the current group (same as ChannelUp/Down)
+  function stepChannel(delta){
+    const list = visibleChannels.length ? visibleChannels : channels;
+    if(!list.length) return;
+    let pos = list.findIndex(function(c){ return c._i === currentIndex; });
+    if(pos < 0) pos = delta > 0 ? 0 : list.length - 1;
+    else pos = (pos + delta + list.length) % list.length;
+    playByIndex(list[pos]._i);
   }
+  function previousChannel(){ stepChannel(-1); }
+  function nextChannel(){ stepChannel(1); }
 
-  function nextChannel(){
-    if(!channels.length) return;
-    let i = (typeof currentIndex === 'number' ? currentIndex : -1) + 1;
-    if(i >= channels.length) i = 0;
-    playByIndex(i);
+  function setFallbackFs(on){
+    document.body.classList.toggle('tv-video-fullscreen', on);
+    playerSection.classList.toggle('is-fullscreen', on);
   }
 
   async function enterFullscreen(){
-    try{
-      if(document.fullscreenElement === playerSection) return;
-      if(playerSection.requestFullscreen) await playerSection.requestFullscreen();
-      else {
-        document.body.classList.add('tv-video-fullscreen');
-        playerSection.classList.add('is-fullscreen');
-      }
-    }catch(e){
-      document.body.classList.add('tv-video-fullscreen');
-      playerSection.classList.add('is-fullscreen');
+    const nativeEl = document.fullscreenElement || document.webkitFullscreenElement;
+    if(nativeEl === playerSection) return;
+    const req = playerSection.requestFullscreen || playerSection.webkitRequestFullscreen;
+    if(req){
+      try{
+        const r = req.call(playerSection);
+        if(r && typeof r.then === 'function') await r;
+        return;
+      }catch(e){}
     }
+    setFallbackFs(true);
+  }
+
+  function exitFullscreen(){
+    setFallbackFs(false);
+    try{
+      if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen();
+      else if(document.webkitFullscreenElement && document.webkitExitFullscreen) document.webkitExitFullscreen();
+    }catch(e){}
+    hideOverlay();
   }
 
   // On this VIDAA browser OK is delivered as a click.
@@ -781,11 +817,15 @@ window.__vidaa = {
     if(e.isTrusted && !inFullscreen()) enterFullscreen();
   }, true);
 
-  document.addEventListener('fullscreenchange', function(){
-    const active = document.fullscreenElement === playerSection;
+  function onFsChange(){
+    const el = document.fullscreenElement || document.webkitFullscreenElement;
+    const active = el === playerSection;
     playerSection.classList.toggle('is-fullscreen', active);
+    if(!active) document.body.classList.remove('tv-video-fullscreen');
     hideOverlay();
-  });
+  }
+  document.addEventListener('fullscreenchange', onFsChange);
+  document.addEventListener('webkitfullscreenchange', onFsChange);
 
   // IMPORTANT: VIDAA was previously proven to deliver these number keys as keydown
   // with keyCodes 50/52/53/54/56. Keep exactly one keydown handler.
@@ -802,6 +842,12 @@ window.__vidaa = {
       else if(k === 53 || k === 13){ pickerChoose(); }
       else if(k === 501 || k === 27 || k === 8 || k === 10009 || k === 461){ closePicker(); }
       return;
+    }
+    const isBack = k === 8 || k === 27 || k === 461 || k === 10009 ||
+      e.key === 'Backspace' || e.key === 'Escape' || e.key === 'GoBack' || e.key === 'BrowserBack';
+    if(isBack){
+      if(overlay && overlay.classList.contains('show')){ e.preventDefault(); e.stopImmediatePropagation(); hideOverlay(); return; }
+      if(inFullscreen()){ e.preventDefault(); e.stopImmediatePropagation(); exitFullscreen(); return; }
     }
     if(k === 501){ e.preventDefault(); e.stopImmediatePropagation(); openPicker(); return; }
 
@@ -911,7 +957,7 @@ window.__vidaa = {
   function pickerChoose(){
     const idx = pickIdx;
     closePicker();
-    if(idx !== playlistIndex) selectPlaylist(idx);
+    if(idx !== playlistIndex || !channels.length) selectPlaylist(idx);
   }
 
   window.__openPlaylistPicker = openPicker;
