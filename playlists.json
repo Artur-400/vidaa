@@ -1,10 +1,6 @@
 [
   
   {
-    "name": "Мир",
-    "url": "https://iptv-org.github.io/iptv/index.m3u"
-  },
-  {
     "name": "DE",
     "url": "https://raw.githubusercontent.com/Artur-400/TVIP/main/DE.m3u"
   },
